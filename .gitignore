@@ -1,0 +1,21 @@
+# 临时文件
+*.tmp
+*.bak
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# ===== 私密内容，永不入库 =====
+config.json
+clients/
+*.key
+*.conf
+*.pem
+secrets/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
