@@ -72,6 +72,11 @@ class ConfigTests(unittest.TestCase):
         cfg = core.load_config(p)
         self.assertEqual(cfg["lan_cidrs"], [])
 
+    def test_reject_bad_vpn_prefix(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "vpn_cidr": "10.0.0.0/33"})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
 
 if __name__ == "__main__":
     unittest.main()

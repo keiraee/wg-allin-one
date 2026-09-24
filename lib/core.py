@@ -58,6 +58,10 @@ def load_config(path=None):
 def validate_config(cfg):
     if not CIDR_RE.match(str(cfg.get("vpn_cidr", ""))):
         raise ApiError("vpn_cidr 不是合法网段: %s" % cfg.get("vpn_cidr"))
+    try:
+        cidr_bounds(cfg["vpn_cidr"])
+    except ValueError:
+        raise ApiError("vpn_cidr 前缀长度不合法: %s" % cfg.get("vpn_cidr"))
     port = cfg.get("wg_port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ApiError("wg_port 必须是 1-65535 的整数")
@@ -412,8 +416,8 @@ def remove_peer(name, force=False):
     if not peer:
         raise ApiError("找不到设备: %s" % name, 404)
     ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
-    extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
-    if extras and not force:
+    if is_gateway(peer, ip) and not force:
+        extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
         raise ApiError("该设备是内网网关(带路由 %s), 删除会断掉进内网; 确认请加 --force"
                        % ", ".join(extras), 409)
     peers.remove(peer)

@@ -104,6 +104,12 @@ class DelEditTests(PeerBase):
         self.assertIsNone(core.load_client_meta("manual"))
         self.assertEqual(core.load_client_meta("manual2")["name"], "manual2")
 
+    def test_edit_clear_routes(self, m_gen, m_pub, m_set):
+        core.add_peer("router", None, None, None, None, "192.168.1.0/24", CFG)
+        core.update_peer("router", routes="", cfg=CFG)
+        _, peers = core.parse_conf()
+        self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.2/32"])
+
 
 if __name__ == "__main__":
     unittest.main()
