@@ -643,6 +643,9 @@ def main(argv=None):
     except ApiError as e:
         print("错误: %s" % e, file=sys.stderr)
         return 1
+    except Exception as e:
+        print("内部错误: %s" % e, file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

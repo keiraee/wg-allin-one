@@ -77,7 +77,7 @@ class NoSecretsInRepoTests(unittest.TestCase):
     """扫描仓库: 私钥/真实 IP/密码永不入库。模式用片段构造, 源文件不含明文。"""
 
     BANNED = [
-        re.compile(r"^\s*PrivateKey\s*=\s*[A-Za-z0-9+/]{20,}", re.M),
+        re.compile(r"^\s*PrivateKey\s*=\s*[A-Za-z0-9+/=]{20,}", re.M),
         re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
         re.compile("Hcy" + chr(64) + "520" + "mh"),
         re.compile("203" + r"\." + "0" + r"\." + "113" + r"\." + "7"),
@@ -89,8 +89,10 @@ class NoSecretsInRepoTests(unittest.TestCase):
         for p in root.rglob("*"):
             if not p.is_file() or ".git" in p.parts:
                 continue
-            if p.suffix not in (".py", ".sh", ".json", ".md", ".html", ".css", ".js"):
-                continue
+            if p.suffix not in (".py", ".sh", ".json", ".md", ".html", ".css", ".js",
+                                ".yaml", ".yml", ".toml", ".env", ".conf", ".txt"):
+                if p.name != ".env":
+                    continue
             text = p.read_text(encoding="utf-8", errors="ignore")
             for pat in self.BANNED:
                 if pat.search(text):
