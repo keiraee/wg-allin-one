@@ -37,11 +37,32 @@ class ClientStoreTests(unittest.TestCase):
     def test_drop_client(self):
         core.save_client("phone", "X", {"name": "phone"})
         core.drop_client("phone")
+        conf_p, _ = core.client_paths("phone")
+        self.assertFalse(conf_p.exists())
         self.assertIsNone(core.load_client_meta("phone"))
 
     def test_read_priv_from_conf(self):
         core.save_client("phone", "[Interface]\nPrivateKey = SEC\n", {"name": "phone"})
         self.assertEqual(core.read_priv("phone"), "SEC")
+
+
+class RunWgGuardTests(unittest.TestCase):
+    @mock.patch("core.subprocess.run", side_effect=FileNotFoundError("wg"))
+    def test_missing_binary_is_apierror(self, m):
+        with self.assertRaises(core.ApiError):
+            core.run_wg(["genkey"])
+
+    @mock.patch("core.subprocess.run")
+    def test_timeout_is_apierror(self, m):
+        m.side_effect = core.subprocess.TimeoutExpired(["wg"], 15)
+        with self.assertRaises(core.ApiError):
+            core.run_wg(["genkey"])
+
+
+class PathGuardTests(unittest.TestCase):
+    def test_client_paths_rejects_traversal(self):
+        with self.assertRaises(core.ApiError):
+            core.client_paths("../evil")
 
 
 if __name__ == "__main__":

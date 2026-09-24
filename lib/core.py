@@ -270,9 +270,17 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
     ) % (priv, ip, cfg.get("client_dns") or "1.1.1.1", server_pub, allowed, endpoint, keepalive)
 
 
+_PRIVKEY_RE = re.compile(r"^\s*PrivateKey\s*=\s*(\S+)", re.M)
+
+
 def run_wg(args, input_text=None):
-    r = subprocess.run(["wg", *args], input=input_text,
-                       capture_output=True, text=True, timeout=15)
+    try:
+        r = subprocess.run(["wg", *args], input=input_text,
+                           capture_output=True, text=True, timeout=15)
+    except FileNotFoundError:
+        raise ApiError("wg 命令未找到, 请确认已安装 WireGuard 工具", 500)
+    except subprocess.TimeoutExpired:
+        raise ApiError("wg 命令超时(15s): %s" % " ".join(args), 500)
     if r.returncode != 0:
         raise ApiError(r.stderr.strip() or "wg 命令执行失败", 500)
     return r.stdout
@@ -292,14 +300,14 @@ def server_pubkey():
     except ApiError:
         pass
     if Path(WG_CONF).exists():
-        m = re.search(r"^\s*PrivateKey\s*=\s*(\S+)",
-                      Path(WG_CONF).read_text(encoding="utf-8"), re.M)
+        m = _PRIVKEY_RE.search(Path(WG_CONF).read_text(encoding="utf-8"))
         if m:
             return run_wg(["pubkey"], input_text=m.group(1) + "\n").strip()
     return ""
 
 
 def client_paths(name):
+    normalize_name(name)  # 拒绝路径穿越/非法名(纵深防御, T6 也会先校验)
     return Path(CLIENTS) / ("%s.conf" % name), Path(CLIENTS) / ("%s.json" % name)
 
 
@@ -307,6 +315,7 @@ def save_client(name, conf_text, meta):
     Path(CLIENTS).mkdir(parents=True, exist_ok=True)
     conf_p, meta_p = client_paths(name)
     conf_p.write_text(conf_text, encoding="utf-8")
+    # NOTE: chmod 在 Windows 是无操作(NTFS 需 icacls); 生产目标是 Linux
     conf_p.chmod(0o600)
     meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
     meta_p.chmod(0o600)
@@ -328,8 +337,7 @@ def drop_client(name):
 def read_priv(name):
     conf_p, _ = client_paths(name)
     if conf_p.exists():
-        m = re.search(r"^\s*PrivateKey\s*=\s*(\S+)",
-                      conf_p.read_text(encoding="utf-8"), re.M)
+        m = _PRIVKEY_RE.search(conf_p.read_text(encoding="utf-8"))
         if m:
             return m.group(1)
     return ""
