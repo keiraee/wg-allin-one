@@ -71,3 +71,77 @@ def validate_config(cfg):
     pp = cfg.get("panel_port")
     if type(pp) is not int or not 1 <= pp <= 65535:
         raise ApiError("panel_port 必须是 1-65535 的整数")
+
+
+def _ip_to_int(ip):
+    parts = str(ip).split(".")
+    if len(parts) != 4:
+        raise ValueError(ip)
+    octets = [int(x) for x in parts]
+    if any(o > 255 or o < 0 for o in octets):
+        raise ValueError(ip)
+    return (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]
+
+
+def int_to_ip(n):
+    return ".".join(str((n >> s) & 255) for s in (24, 16, 8, 0))
+
+
+def cidr_bounds(cidr):
+    net, _, prefix = str(cidr).partition("/")
+    p = int(prefix or 32)
+    if not 0 <= p <= 32:
+        raise ValueError(cidr)
+    mask = (0xFFFFFFFF << (32 - p)) & 0xFFFFFFFF if p else 0
+    base = _ip_to_int(net) & mask
+    return base, base + (1 << (32 - p)) - 1
+
+
+def ip_in_cidr(ip, cidr):
+    base, last = cidr_bounds(cidr)
+    n = _ip_to_int(ip)
+    return base <= n <= last
+
+
+def normalize_name(name):
+    name = (name or "").strip()
+    if not NAME_RE.match(name) or name[:1] == "-":
+        raise ApiError("设备名仅允许 1-15 位字母/数字/下划线/连字符(导入隧道需要合法名称)")
+    return name
+
+
+def normalize_ip(ip, cfg, used, current=None):
+    ip = (ip or "").strip()
+    try:
+        n = _ip_to_int(ip)
+    except ValueError:
+        raise ApiError("IP 不合法: %s" % ip)
+    if not ip_in_cidr(ip, cfg["vpn_cidr"]):
+        raise ApiError("IP 不在 VPN 网段 %s 内" % cfg["vpn_cidr"])
+    base, _ = cidr_bounds(cfg["vpn_cidr"])
+    if n == base + 1:
+        raise ApiError("该 IP 是服务器地址, 请换一个")
+    used = set(used or ())
+    if current:
+        used.discard(current)
+    if ip in used:
+        raise ApiError("该 IP 已被占用")
+    return ip
+
+
+def normalize_routes(routes):
+    if routes is None:
+        return []
+    if isinstance(routes, str):
+        routes = [x.strip() for x in routes.split(",") if x.strip()]
+    out = []
+    for r in routes:
+        r = str(r).strip()
+        if not CIDR_RE.match(r):
+            raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
+        try:
+            cidr_bounds(r)  # 拒绝 /33 之类越界前缀
+        except ValueError:
+            raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
+        out.append(r)
+    return out
