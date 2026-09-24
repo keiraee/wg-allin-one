@@ -27,6 +27,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg["vpn_cidr"], "10.66.66.0/24")
         self.assertEqual(cfg["default_mode"], "split")
         self.assertEqual(cfg["lan_cidrs"], [])
+        self.assertIsInstance(cfg["lan_cidrs"], list)
 
     def test_reject_bad_vpn_cidr(self):
         p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "vpn_cidr": "nope"})
@@ -47,6 +48,29 @@ class ConfigTests(unittest.TestCase):
         p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "lan_cidrs": ["x"]})
         with self.assertRaises(core.ApiError):
             core.load_config(p)
+
+    def test_missing_file_is_500(self):
+        p = Path(self.tmp.name) / "nope.json"
+        with self.assertRaises(core.ApiError) as cm:
+            core.load_config(p)
+        self.assertEqual(cm.exception.code, 500)
+
+    def test_bad_json_is_500(self):
+        p = Path(self.tmp.name) / "config.json"
+        p.write_text("{not json", encoding="utf-8")
+        with self.assertRaises(core.ApiError) as cm:
+            core.load_config(p)
+        self.assertEqual(cm.exception.code, 500)
+
+    def test_reject_bool_port(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "wg_port": True})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
+    def test_null_lan_cidrs_normalizes(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "lan_cidrs": None})
+        cfg = core.load_config(p)
+        self.assertEqual(cfg["lan_cidrs"], [])
 
 
 if __name__ == "__main__":

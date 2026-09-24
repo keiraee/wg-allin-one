@@ -45,10 +45,11 @@ def load_config(path=None):
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         raise ApiError("配置不是合法 JSON: %s" % p, 500)
-    cfg = dict(DEFAULTS)
+    cfg = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULTS.items()}
     for k, v in data.items():
         if k in DEFAULTS:
             cfg[k] = v
+    cfg["lan_cidrs"] = cfg.get("lan_cidrs") or []
     validate_config(cfg)
     return cfg
 
@@ -57,7 +58,7 @@ def validate_config(cfg):
     if not CIDR_RE.match(str(cfg.get("vpn_cidr", ""))):
         raise ApiError("vpn_cidr 不是合法网段: %s" % cfg.get("vpn_cidr"))
     port = cfg.get("wg_port")
-    if not isinstance(port, int) or not 1 <= port <= 65535:
+    if type(port) is not int or not 1 <= port <= 65535:
         raise ApiError("wg_port 必须是 1-65535 的整数")
     ep = str(cfg.get("endpoint") or "")
     if not ep or ":" not in ep:
@@ -68,5 +69,5 @@ def validate_config(cfg):
         if not CIDR_RE.match(str(c)):
             raise ApiError("lan_cidrs 含非法网段: %s" % c)
     pp = cfg.get("panel_port")
-    if not isinstance(pp, int) or not 1 <= pp <= 65535:
+    if type(pp) is not int or not 1 <= pp <= 65535:
         raise ApiError("panel_port 必须是 1-65535 的整数")
