@@ -185,7 +185,7 @@ def parse_conf():
                     cur["allowed_ips"] = [x.strip() for x in v.split(",") if x.strip()]
                 elif k == "PersistentKeepalive":
                     try:
-                        cur["keepalive"] = int(v)
+                        cur["keepalive"] = max(0, int(v))
                     except ValueError:
                         pass
                 else:
@@ -211,5 +211,9 @@ def write_conf(iface_lines, peers):
     text = "\n".join(out).rstrip() + "\n"
     conf = Path(WG_CONF)
     tmp = conf.with_name(conf.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(conf)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(conf)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise ApiError("写入 wg0.conf 失败", 500)

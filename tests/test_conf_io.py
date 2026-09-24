@@ -66,6 +66,44 @@ class ConfIoTests(unittest.TestCase):
         iface, peers = core.parse_conf()
         self.assertEqual((iface, peers), ([], []))
 
+    def test_parse_iface_only_no_peers(self):
+        self.conf.write_text("[Interface]\nAddress = 10.66.66.1/24\n", encoding="utf-8")
+        iface, peers = core.parse_conf()
+        self.assertEqual(peers, [])
+        self.assertTrue(any("Address" in l for l in iface))
+        core.write_conf(iface, peers)
+        iface2, peers2 = core.parse_conf()
+        self.assertEqual(peers2, [])
+        self.assertTrue(any("Address" in l for l in iface2))
+
+    def test_peer_without_name_comment(self):
+        self.conf.write_text(SAMPLE, encoding="utf-8")
+        iface, peers = core.parse_conf()
+        peers[0]["name"] = ""
+        core.write_conf(iface, peers)
+        iface2, peers2 = core.parse_conf()
+        self.assertEqual(peers2[0]["name"], "PEER_A")  # fallback: pubkey[:8]
+        self.assertEqual(peers2[0]["pubkey"], "PEER_A")
+
+    def test_negative_keepalive_clamped(self):
+        self.conf.write_text(SAMPLE.replace("PersistentKeepalive = 25",
+                                            "PersistentKeepalive = -5"), encoding="utf-8")
+        _, peers = core.parse_conf()
+        self.assertEqual(peers[0]["keepalive"], 0)
+
+    def test_write_failure_cleans_tmp(self):
+        self.conf.write_text(SAMPLE, encoding="utf-8")
+        iface, peers = core.parse_conf()
+        bad = Path(self.tmp.name) / "missing-dir" / "wg0.conf"
+        self._orig2 = core.WG_CONF
+        core.WG_CONF = bad  # parent dir missing -> write_text raises OSError
+        try:
+            with self.assertRaises(core.ApiError):
+                core.write_conf(iface, peers)
+        finally:
+            core.WG_CONF = self._orig2
+        self.assertEqual(list(self.conf.parent.iterdir()), [self.conf])  # no orphan .tmp
+
 
 if __name__ == "__main__":
     unittest.main()
