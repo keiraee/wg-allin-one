@@ -45,6 +45,11 @@ class IpTests(unittest.TestCase):
             with self.assertRaises(core.ApiError):
                 core.normalize_ip(ip, CFG, set())
 
+    def test_missing_vpn_cidr_is_500(self):
+        with self.assertRaises(core.ApiError) as cm:
+            core.normalize_ip("10.66.66.5", {}, set())
+        self.assertEqual(cm.exception.code, 500)
+
 
 class RouteTests(unittest.TestCase):
     def test_parse_comma_string(self):

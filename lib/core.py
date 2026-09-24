@@ -116,9 +116,12 @@ def normalize_ip(ip, cfg, used, current=None):
         n = _ip_to_int(ip)
     except ValueError:
         raise ApiError("IP 不合法: %s" % ip)
-    if not ip_in_cidr(ip, cfg["vpn_cidr"]):
-        raise ApiError("IP 不在 VPN 网段 %s 内" % cfg["vpn_cidr"])
-    base, _ = cidr_bounds(cfg["vpn_cidr"])
+    vpn_cidr = cfg.get("vpn_cidr")
+    if not vpn_cidr:
+        raise ApiError("配置缺少 vpn_cidr", 500)
+    if not ip_in_cidr(ip, vpn_cidr):
+        raise ApiError("IP 不在 VPN 网段 %s 内" % vpn_cidr)
+    base, _ = cidr_bounds(vpn_cidr)
     if n == base + 1:
         raise ApiError("该 IP 是服务器地址, 请换一个")
     used = set(used or ())
