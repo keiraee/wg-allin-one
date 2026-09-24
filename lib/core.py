@@ -490,3 +490,94 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                           encoding="utf-8")
         meta_p.chmod(0o600)
     return meta
+
+
+import time
+
+
+def live_status():
+    try:
+        r = subprocess.run(["wg", "show", WG_IFACE, "dump"],
+                           capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}, 0
+    info, listen_port = {}, 0
+    if r.returncode != 0 or not r.stdout.strip():
+        return info, listen_port
+    lines = r.stdout.splitlines()
+    head = lines[0].split("\t")
+    if len(head) >= 3:
+        try:
+            listen_port = int(head[2])
+        except ValueError:
+            pass
+    for line in lines[1:]:
+        f = line.split("\t")
+        if len(f) < 8:
+            continue
+        try:
+            info[f[0]] = {"handshake": int(f[4]), "rx": int(f[5]), "tx": int(f[6])}
+        except ValueError:
+            continue
+    return info, listen_port
+
+
+def list_peers():
+    live, _ = live_status()
+    now = int(time.time())
+    rows = []
+    for p in parse_conf()[1]:
+        st = live.get(p["pubkey"], {})
+        hs = st.get("handshake", 0)
+        if hs == 0:
+            state = "off"
+        elif now - hs < 180:
+            state = "ok"
+        elif now - hs < 86400:
+            state = "stale"
+        else:
+            state = "off"
+        ip = p["allowed_ips"][0].split("/")[0] if p["allowed_ips"] else ""
+        has_client = False
+        if p["name"]:
+            try:
+                has_client = client_paths(p["name"])[0].exists()
+            except ApiError:
+                has_client = False  # 手工对等端名字不合法时也不能炸列表
+        rows.append({
+            "name": p["name"] or p["pubkey"][:8],
+            "pubkey": p["pubkey"],
+            "ip": ip,
+            "allowed_ips": p["allowed_ips"],
+            "keepalive": p.get("keepalive", 0),
+            "last_handshake": hs,
+            "rx": st.get("rx", 0),
+            "tx": st.get("tx", 0),
+            "state": state,
+            "is_gateway": is_gateway(p, ip),
+            "has_client": has_client,
+        })
+    return rows
+
+
+def show_conf(name):
+    conf_p, _ = client_paths(name)
+    if not conf_p.exists():
+        raise ApiError("找不到该设备的配置(手工创建的对等端没有备份)", 404)
+    return conf_p.read_text(encoding="utf-8")
+
+
+def full_status(cfg):
+    live, listen_port = live_status()
+    return {
+        "ok": True,
+        "iface": {"name": WG_IFACE, "up": bool(live) or listen_port > 0,
+                  "listen_port": listen_port or cfg.get("wg_port", 51820),
+                  "public_key": server_pubkey()},
+        "endpoint": cfg.get("endpoint", ""),
+        "default_allowed": ", ".join(
+            [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or [])),
+        "next_ip": next_ip(cfg),
+        "peers": list_peers(),
+        "now": int(time.time()),
+    }
