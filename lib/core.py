@@ -217,3 +217,46 @@ def write_conf(iface_lines, peers):
     except OSError:
         tmp.unlink(missing_ok=True)
         raise ApiError("写入 wg0.conf 失败", 500)
+
+
+def used_ips(peers=None):
+    used = set()
+    for p in (parse_conf()[1] if peers is None else peers):
+        for a in p["allowed_ips"]:
+            used.add(a.split("/")[0])
+    if Path(CLIENTS).exists():
+        for meta_p in Path(CLIENTS).glob("*.json"):
+            try:
+                ip = json.loads(meta_p.read_text(encoding="utf-8")).get("ip")
+                if ip:
+                    used.add(ip)
+            except Exception:
+                pass
+    return used
+
+
+def next_ip(cfg, peers=None):
+    used = used_ips(peers)
+    base, last = cidr_bounds(cfg["vpn_cidr"])
+    for n in range(base + 2, last):
+        cand = int_to_ip(n)
+        if cand not in used:
+            return cand
+    raise ApiError("%s 地址已用尽" % cfg["vpn_cidr"])
+
+
+def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
+    allowed = "0.0.0.0/0, ::/0" if mode == "full" else ", ".join(
+        [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or []))
+    return (
+        "[Interface]\n"
+        "PrivateKey = %s\n"
+        "Address = %s/32\n"
+        "DNS = %s\n"
+        "\n"
+        "[Peer]\n"
+        "PublicKey = %s\n"
+        "AllowedIPs = %s\n"
+        "Endpoint = %s\n"
+        "PersistentKeepalive = %d\n"
+    ) % (priv, ip, cfg["client_dns"], server_pub, allowed, cfg["endpoint"], keepalive)
