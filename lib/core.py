@@ -148,3 +148,68 @@ def normalize_routes(routes):
             raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
         out.append(r)
     return out
+
+
+def parse_conf():
+    iface_lines, peers, cur, section = [], [], None, None
+    if not Path(WG_CONF).exists():
+        return iface_lines, peers
+    for raw in Path(WG_CONF).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line == "[Interface]":
+            section, cur = "iface", None
+            iface_lines.append(raw)
+            continue
+        if line == "[Peer]":
+            section = "peer"
+            cur = {"name": "", "pubkey": "", "allowed_ips": [], "keepalive": 0, "extra": []}
+            peers.append(cur)
+            continue
+        if section == "iface":
+            iface_lines.append(raw)
+            continue
+        if section == "peer" and cur is not None:
+            if line.startswith("#"):
+                if not cur["name"]:
+                    comment = line.lstrip("#").strip()
+                    for pfx in ("name:", "Name =", "name ="):
+                        if comment.startswith(pfx):
+                            comment = comment[len(pfx):].strip()
+                    cur["name"] = comment
+                continue
+            if "=" in line:
+                k, v = (x.strip() for x in line.split("=", 1))
+                if k == "PublicKey":
+                    cur["pubkey"] = v
+                elif k == "AllowedIPs":
+                    cur["allowed_ips"] = [x.strip() for x in v.split(",") if x.strip()]
+                elif k == "PersistentKeepalive":
+                    try:
+                        cur["keepalive"] = int(v)
+                    except ValueError:
+                        pass
+                else:
+                    cur["extra"].append(raw)
+            elif line:
+                cur["extra"].append(raw)
+    return iface_lines, peers
+
+
+def write_conf(iface_lines, peers):
+    out = list(iface_lines)
+    while out and not out[-1].strip():
+        out.pop()
+    for p in peers:
+        out.append("")
+        out.append("[Peer]")
+        out.append("# name: %s" % (p["name"] or p["pubkey"][:8]))
+        out.append("PublicKey = %s" % p["pubkey"])
+        out.append("AllowedIPs = %s" % ", ".join(p["allowed_ips"]))
+        if p.get("keepalive"):
+            out.append("PersistentKeepalive = %d" % p["keepalive"])
+        out.extend(p.get("extra", []))
+    text = "\n".join(out).rstrip() + "\n"
+    conf = Path(WG_CONF)
+    tmp = conf.with_name(conf.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(conf)
