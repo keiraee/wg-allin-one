@@ -268,3 +268,68 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
         "Endpoint = %s\n"
         "PersistentKeepalive = %d\n"
     ) % (priv, ip, cfg.get("client_dns") or "1.1.1.1", server_pub, allowed, endpoint, keepalive)
+
+
+def run_wg(args, input_text=None):
+    r = subprocess.run(["wg", *args], input=input_text,
+                       capture_output=True, text=True, timeout=15)
+    if r.returncode != 0:
+        raise ApiError(r.stderr.strip() or "wg 命令执行失败", 500)
+    return r.stdout
+
+
+def gen_keypair():
+    priv = run_wg(["genkey"]).strip()
+    pub = run_wg(["pubkey"], input_text=priv + "\n").strip()
+    return priv, pub
+
+
+def server_pubkey():
+    try:
+        out = run_wg(["show", WG_IFACE, "public-key"]).strip()
+        if out:
+            return out
+    except ApiError:
+        pass
+    if Path(WG_CONF).exists():
+        m = re.search(r"^\s*PrivateKey\s*=\s*(\S+)",
+                      Path(WG_CONF).read_text(encoding="utf-8"), re.M)
+        if m:
+            return run_wg(["pubkey"], input_text=m.group(1) + "\n").strip()
+    return ""
+
+
+def client_paths(name):
+    return Path(CLIENTS) / ("%s.conf" % name), Path(CLIENTS) / ("%s.json" % name)
+
+
+def save_client(name, conf_text, meta):
+    Path(CLIENTS).mkdir(parents=True, exist_ok=True)
+    conf_p, meta_p = client_paths(name)
+    conf_p.write_text(conf_text, encoding="utf-8")
+    conf_p.chmod(0o600)
+    meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    meta_p.chmod(0o600)
+
+
+def load_client_meta(name):
+    _, meta_p = client_paths(name)
+    if meta_p.exists():
+        return json.loads(meta_p.read_text(encoding="utf-8"))
+    return None
+
+
+def drop_client(name):
+    for p in client_paths(name):
+        if p.exists():
+            p.unlink()
+
+
+def read_priv(name):
+    conf_p, _ = client_paths(name)
+    if conf_p.exists():
+        m = re.search(r"^\s*PrivateKey\s*=\s*(\S+)",
+                      conf_p.read_text(encoding="utf-8"), re.M)
+        if m:
+            return m.group(1)
+    return ""
