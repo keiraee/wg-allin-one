@@ -1,0 +1,11 @@
+{
+  "vpn_cidr": "10.66.66.0/24",
+  "wg_port": 51820,
+  "endpoint": "YOUR_SERVER_IP:51820",
+  "client_dns": "1.1.1.1",
+  "lan_cidrs": [],
+  "panel_bind": "10.66.66.1",
+  "panel_port": 8888,
+  "panel_token_hash": "",
+  "default_mode": "split"
+}
