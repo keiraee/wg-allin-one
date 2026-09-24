@@ -86,6 +86,7 @@ class DelEditTests(PeerBase):
         self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.9/32"])
         self.assertIsNone(core.load_client_meta("phone"))
         self.assertEqual(core.load_client_meta("phone2")["ip"], "10.66.66.9")
+        self.assertEqual(core.read_priv("phone2"), "PRIV")
 
     def test_edit_keeps_gateway_routes(self, m_gen, m_pub, m_set):
         core.add_peer("router", None, None, None, None, "192.168.1.0/24", CFG)
@@ -93,6 +94,15 @@ class DelEditTests(PeerBase):
                          dns=None, keepalive=None, mode=None, routes=None, cfg=CFG)
         _, peers = core.parse_conf()
         self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.5/32", "192.168.1.0/24"])
+
+    def test_rename_manual_peer_keeps_meta(self, m_gen, m_pub, m_set):
+        iface, peers = core.parse_conf()
+        peers.append({"name": "manual", "pubkey": "MPUB",
+                      "allowed_ips": ["10.66.66.7/32"], "keepalive": 0, "extra": []})
+        core.write_conf(iface, peers)
+        core.update_peer("manual", new_name="manual2", cfg=CFG)
+        self.assertIsNone(core.load_client_meta("manual"))
+        self.assertEqual(core.load_client_meta("manual2")["name"], "manual2")
 
 
 if __name__ == "__main__":

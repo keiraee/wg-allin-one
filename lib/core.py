@@ -482,4 +482,11 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                                       server_pubkey(),
                                       meta.get("keepalive", 25))
         save_client(name, conf_text, meta)
+    else:
+        # 无客户端私钥备份(手工对等端): 仍持久化 meta, 否则改名即失联
+        Path(CLIENTS).mkdir(parents=True, exist_ok=True)
+        _, meta_p = client_paths(name)
+        meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1),
+                          encoding="utf-8")
+        meta_p.chmod(0o600)
     return meta
