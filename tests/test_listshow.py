@@ -82,6 +82,32 @@ class ListShowTests(unittest.TestCase):
         self.assertTrue(st["ok"])
         self.assertEqual(st["next_ip"], "10.66.66.3")
         self.assertEqual(len(st["peers"]), 1)
+        self.assertEqual(st["endpoint"], "203.0.113.1:51820")
+        self.assertEqual(st["iface"]["name"], "wg0")
+
+    @mock.patch("core.wg_set_peer")
+    @mock.patch("core.server_pubkey", return_value="SPUB")
+    @mock.patch("core.gen_keypair", return_value=("PRIV", "PUB"))
+    @mock.patch("core.live_status")
+    def test_list_stale(self, m_live, m_gen, m_pub, m_set):
+        stale_hs = int(time.time()) - 300  # 5 分钟前
+        m_live.return_value = ({"PUB": {"handshake": stale_hs, "rx": 10, "tx": 20}}, 51820)
+        core.add_peer("phone", None, None, None, None, None, CFG)
+        rows = core.list_peers()
+        self.assertEqual(rows[0]["state"], "stale")
+
+    @mock.patch("core.next_ip", side_effect=core.ApiError("已用尽"))
+    @mock.patch("core.wg_set_peer")
+    @mock.patch("core.server_pubkey", return_value="SPUB")
+    @mock.patch("core.live_status", return_value=({}, 51820))
+    def test_full_status_pool_exhausted(self, m_live, m_pub, m_set, m_next):
+        # 写入手工对等端（add_peer 也依赖 next_ip，不能在全局 mock 下使用）
+        core.WG_CONF.write_text(
+            "[Interface]\nPrivateKey = S\n\n[Peer]\n# name: phone\n"
+            "PublicKey = PUB\nAllowedIPs = 10.66.66.2/32\n", encoding="utf-8")
+        st = core.full_status(CFG)
+        self.assertTrue(st["ok"])
+        self.assertIsNone(st["next_ip"])
 
 
 if __name__ == "__main__":

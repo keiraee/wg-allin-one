@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BASE = Path(os.environ.get("WGAIO_BASE", "/opt/wgaio"))
@@ -492,9 +493,6 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
     return meta
 
 
-import time
-
-
 def live_status():
     try:
         r = subprocess.run(["wg", "show", WG_IFACE, "dump"],
@@ -522,8 +520,9 @@ def live_status():
     return info, listen_port
 
 
-def list_peers():
-    live, _ = live_status()
+def list_peers(live=None):
+    if live is None:
+        live, _ = live_status()
     now = int(time.time())
     rows = []
     for p in parse_conf()[1]:
@@ -569,6 +568,10 @@ def show_conf(name):
 
 def full_status(cfg):
     live, listen_port = live_status()
+    try:
+        nip = next_ip(cfg)
+    except ApiError:
+        nip = None
     return {
         "ok": True,
         "iface": {"name": WG_IFACE, "up": bool(live) or listen_port > 0,
@@ -577,7 +580,7 @@ def full_status(cfg):
         "endpoint": cfg.get("endpoint", ""),
         "default_allowed": ", ".join(
             [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or [])),
-        "next_ip": next_ip(cfg),
-        "peers": list_peers(),
+        "next_ip": nip,
+        "peers": list_peers(live=live),
         "now": int(time.time()),
     }
