@@ -223,7 +223,8 @@ def used_ips(peers=None):
     used = set()
     for p in (parse_conf()[1] if peers is None else peers):
         for a in p["allowed_ips"]:
-            used.add(a.split("/")[0])
+            if a.endswith("/32"):
+                used.add(a.split("/")[0])
     if Path(CLIENTS).exists():
         for meta_p in Path(CLIENTS).glob("*.json"):
             try:
@@ -246,6 +247,13 @@ def next_ip(cfg, peers=None):
 
 
 def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
+    try:
+        keepalive = int(keepalive)
+    except (TypeError, ValueError):
+        keepalive = 25
+    endpoint = cfg.get("endpoint")
+    if not endpoint:
+        raise ApiError("配置缺少 endpoint", 500)
     allowed = "0.0.0.0/0, ::/0" if mode == "full" else ", ".join(
         [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or []))
     return (
@@ -259,4 +267,4 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
         "AllowedIPs = %s\n"
         "Endpoint = %s\n"
         "PersistentKeepalive = %d\n"
-    ) % (priv, ip, cfg["client_dns"], server_pub, allowed, cfg["endpoint"], keepalive)
+    ) % (priv, ip, cfg.get("client_dns") or "1.1.1.1", server_pub, allowed, endpoint, keepalive)

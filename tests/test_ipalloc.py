@@ -39,6 +39,15 @@ class AllocTests(unittest.TestCase):
         with self.assertRaises(core.ApiError):
             core.next_ip(CFG, peers)
 
+    def test_next_ip_slash30_one_host(self):
+        small = {"vpn_cidr": "10.66.66.0/30"}
+        self.assertEqual(core.next_ip(small, []), "10.66.66.2")
+
+    def test_next_ip_slash31_exhausted(self):
+        small = {"vpn_cidr": "10.66.66.0/31"}
+        with self.assertRaises(core.ApiError):
+            core.next_ip(small, [])
+
 
 class ClientConfTests(unittest.TestCase):
     def test_split_mode(self):
