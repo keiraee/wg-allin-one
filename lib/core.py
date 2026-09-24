@@ -584,3 +584,66 @@ def full_status(cfg):
         "peers": list_peers(live=live),
         "now": int(time.time()),
     }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="wgaio", description="WireGuard 设备管理核心")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    user = sub.add_parser("user", help="设备管理")
+    usub = user.add_subparsers(dest="ucmd", required=True)
+
+    p_add = usub.add_parser("add", help="生成设备")
+    p_add.add_argument("name")
+    p_add.add_argument("--ip", default=None)
+    p_add.add_argument("--dns", default=None)
+    p_add.add_argument("--ka", default=None, help="保活秒数 0-120")
+    p_add.add_argument("--mode", choices=["split", "full"], default=None)
+    p_add.add_argument("--routes", default=None,
+                       help="网关路由段, 逗号分隔(如 192.168.1.0/24)")
+
+    p_del = usub.add_parser("del", help="删除设备")
+    p_del.add_argument("name")
+    p_del.add_argument("--force", action="store_true")
+
+    p_edit = usub.add_parser("edit", help="修改设备")
+    p_edit.add_argument("name")
+    p_edit.add_argument("--rename", default=None)
+    p_edit.add_argument("--ip", default=None)
+    p_edit.add_argument("--dns", default=None)
+    p_edit.add_argument("--ka", default=None)
+    p_edit.add_argument("--mode", choices=["split", "full"], default=None)
+    p_edit.add_argument("--routes", default=None)
+
+    usub.add_parser("list", help="设备列表")
+    p_show = usub.add_parser("show", help="导出 .conf")
+    p_show.add_argument("name")
+
+    args = parser.parse_args(argv)
+    try:
+        cfg = load_config()
+        if args.ucmd == "add":
+            meta, _ = add_peer(args.name, args.ip, args.dns, args.ka,
+                               args.mode, args.routes, cfg)
+            print("已生成 %s (%s/%s)" % (meta["name"], meta["ip"], meta["mode"]))
+        elif args.ucmd == "del":
+            remove_peer(args.name, force=args.force)
+            print("已删除 %s" % args.name)
+        elif args.ucmd == "edit":
+            meta = update_peer(args.name, new_name=args.rename, ip=args.ip,
+                               dns=args.dns, keepalive=args.ka, mode=args.mode,
+                               routes=args.routes, cfg=cfg)
+            print("已更新 %s" % meta["name"])
+        elif args.ucmd == "list":
+            for r in list_peers():
+                gw = " 网关" if r["is_gateway"] else ""
+                print("%-15s %-14s %-5s%s" % (r["name"], r["ip"], r["state"], gw))
+        elif args.ucmd == "show":
+            print(show_conf(args.name), end="")
+        return 0
+    except ApiError as e:
+        print("错误: %s" % e, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
