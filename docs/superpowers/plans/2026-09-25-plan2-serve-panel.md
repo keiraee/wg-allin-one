@@ -1141,4 +1141,10 @@ git commit -m "fix: wg 热更新跳过时告警, 不再静默吞掉不同步"
 
 ## 计划 3 预告（本计划完成后写）
 
-bash 套装：`wgaio.sh` 入口 + `lib/*.sh`（wizard 中文向导/install/upgrade/rollback/uninstall/backup）+ systemd 单元 + SHA256SUMS + GitHub Actions + README。携带遗留项：`user show` 输出含私钥 → 包装层禁止落日志；装完打印「安全组放行 UDP」醒目提示。
+bash 套装：`wgaio.sh` 入口 + `lib/*.sh`（wizard 中文向导/install/upgrade/rollback/uninstall/backup）+ systemd 单元 + SHA256SUMS + GitHub Actions + README。携带遗留项：
+
+- `user show` 输出含私钥 → 包装层禁止落日志
+- 会话 TTL 与 `POST /api/logout`（当前会话只靠重启失效, FIFO 上限 1000）
+- 登录按 IP 限流（当前仅 0.5s 全局迟滞, 高熵令牌下暴力破解不可行但弱令牌无防护）
+- CLI+HTTP 并发的进程级协调（读路径无锁, conf 原子替换兜底; 真出问题再上文件锁）
+- systemd 单元把 stderr 接进 journal（wg_set_peer 告警走 stderr）

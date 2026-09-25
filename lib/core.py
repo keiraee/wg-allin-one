@@ -548,6 +548,7 @@ def live_status():
     return info, listen_port
 
 
+# 读路径刻意不持锁(conf 原子替换保证一致性); 若未来 CLI+HTTP 进程级并发成真, 再考虑文件锁
 def list_peers(live=None):
     if live is None:
         live, _ = live_status()
@@ -590,6 +591,7 @@ def list_peers(live=None):
     return rows
 
 
+# 读路径刻意不持锁(conf 原子替换保证一致性); 若未来 CLI+HTTP 进程级并发成真, 再考虑文件锁
 def show_conf(name):
     conf_p, _ = client_paths(name)
     if not conf_p.exists():
@@ -860,6 +862,9 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         self._handle("PATCH")
+
+    def do_HEAD(self):
+        self._handle("GET")
 
     def do_DELETE(self):
         self._handle("DELETE")
