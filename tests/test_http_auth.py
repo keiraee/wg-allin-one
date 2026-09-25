@@ -97,6 +97,13 @@ class AuthTests(HttpTestBase):
         cookie = hd.get("Set-Cookie", "")
         self.assertIn("HttpOnly", cookie)
         self.assertIn("Max-Age=%d" % core.SESSION_TTL, cookie)
+        self.assertNotIn("Secure", cookie)
+
+    def test_secure_cookie_only_when_asked(self):
+        plain = core.session_cookie("abc", 10, secure=False)
+        wrapped = core.session_cookie("abc", 10, secure=True)
+        self.assertNotIn("Secure", plain)
+        self.assertIn("Secure", wrapped)
 
     def test_session_expires(self):
         cookie = self.login()

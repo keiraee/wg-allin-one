@@ -810,8 +810,9 @@ def main(argv=None):
         return 2
 
 
-def session_cookie(value, max_age):
-    return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d" % (value, max_age)
+def session_cookie(value, max_age, secure=False):
+    flag = "; Secure" if secure else ""
+    return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d%s" % (value, max_age, flag)
 
 
 def hash_token(plain):
@@ -891,6 +892,10 @@ class PanelHandler(BaseHTTPRequestHandler):
         m = c.get("wgaio_sess")
         return m.value if m else None
 
+    def _cookie_secure(self):
+        import ssl
+        return isinstance(getattr(self, "connection", None), ssl.SSLSocket)
+
     def _authed(self):
         s = self._session()
         if not s:
@@ -940,7 +945,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     while len(_sessions) > 1000:
                         _sessions.popitem(last=False)
                 self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
-                           extra={"Set-Cookie": session_cookie(sess, SESSION_TTL)})
+                           extra={"Set-Cookie": session_cookie(sess, SESSION_TTL, self._cookie_secure())})
                 return
             if parts[:1] == ["api"]:
                 if not self._authed():
@@ -972,7 +977,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if s:
                     _sessions.pop(s, None)
             self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
-                       extra={"Set-Cookie": session_cookie("", 0)})
+                       extra={"Set-Cookie": session_cookie("", 0, self._cookie_secure())})
             return
         if parts == ["api", "status"] and method == "GET":
             self._json(full_status(cfg))
