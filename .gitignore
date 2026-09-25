@@ -19,3 +19,8 @@ secrets/
 __pycache__/
 *.pyc
 .venv/
+
+# 运行时产物
+_stage/
+snapshots/
+config.json
