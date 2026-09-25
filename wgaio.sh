@@ -50,8 +50,9 @@ usage() {
   install                 向导式安装(中文问答)
   version                 显示版本
   user add|del|edit|list|show   设备管理(透传核心)
-  panel start|stop|status|restart  面板服务管理
+  panel start|stop|restart|status|install  面板服务管理
   status                  总览
+  logs [行数]             面板日志
   upgrade | uninstall     升级 / 卸载
   rollback                回滚到最近快照
 

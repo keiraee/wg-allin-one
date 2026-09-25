@@ -19,6 +19,8 @@ class EntryTests(unittest.TestCase):
         r = run_sh()
         self.assertEqual(r.returncode, 2)
         self.assertIn("用法", r.stderr)
+        self.assertIn("logs", r.stderr)
+        self.assertIn("status|install", r.stderr)
 
     def test_unknown_subcommand(self):
         r = run_sh("frobnicate")
