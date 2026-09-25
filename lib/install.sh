@@ -22,6 +22,14 @@ stage_files() {  # stage_files <dest>
   shopt -u nullglob
 }
 
+sync_config() {  # sync_config <dest>
+  local dest="$1"
+  if [ "$(cd "$ROOT" && pwd)" != "$(cd "$dest" && pwd)" ]; then
+    cp -f "$ROOT/config.json" "$dest/config.json"
+  fi
+  chmod 600 "$dest/config.json"
+}
+
 maybe_gen_tls() {
   local cert key cn
   cert="$(read_cfg tls_cert)"; key="$(read_cfg tls_key)"; cn="$(read_cfg tls_cn)"
@@ -63,8 +71,7 @@ cmd_install() {
 
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
   stage_files "$dest"
-  cp -f "$ROOT/config.json" "$dest/config.json"
-  chmod 600 "$dest/config.json"
+  sync_config "$dest"
 
   maybe_gen_tls
 

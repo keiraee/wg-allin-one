@@ -5,9 +5,23 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-# --- 引导模式: 单文件下载时自动拉取完整套件 ---
+VERSION="0.2.1"
+
+# --- 引导模式: 套件缺失或版本不一致时自动拉取 ---
+need_bootstrap=0
 if [ ! -f "$ROOT/lib/core.py" ]; then
-  if [ "${1:-}" = "version" ]; then printf 'wgaio %s\n' "0.2.0"; exit 0; fi
+  need_bootstrap=1
+elif ! grep -q "SUITE_VERSION=\"$VERSION\"" "$ROOT/lib/core.sh" 2>/dev/null; then
+  printf '[wgaio] 检测到套件版本与入口不一致(旧版残留?), 正在更新...\n'
+  need_bootstrap=1
+fi
+
+if [ "$need_bootstrap" = "1" ]; then
+  if [ "${1:-}" = "version" ]; then printf 'wgaio %s\n' "$VERSION"; exit 0; fi
+  if [ -n "${WGAIO_OFFLINE:-}" ]; then
+    printf '[wgaio] 错误: 离线模式且套件缺失/过旧, 请手动更新套件后重试\n' >&2
+    exit 1
+  fi
   DEST="${WGAIO_DIR:-/opt/wgaio}"
   printf '[wgaio] 引导模式: 正在下载完整套件到 %s ...\n' "$DEST"
   if [ "$(id -u)" -ne 0 ]; then
@@ -16,8 +30,8 @@ if [ ! -f "$ROOT/lib/core.py" ]; then
   fi
   command -v curl >/dev/null 2>&1 || { printf '[wgaio] 错误: 需要 curl\n' >&2; exit 1; }
   mkdir -p "$DEST"
-  VER="${WGAIO_REF:-main}"
-  curl -fsSL "https://github.com/keiraee/wg-allin-one/archive/refs/heads/${VER}.tar.gz" -o "$DEST/.wgaio.tgz" \
+  REF="${WGAIO_REF:-main}"
+  curl -fsSL "https://github.com/keiraee/wg-allin-one/archive/refs/heads/${REF}.tar.gz" -o "$DEST/.wgaio.tgz" \
     || { printf '[wgaio] 错误: 套件下载失败\n' >&2; exit 1; }
   tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1
   rm -f "$DEST/.wgaio.tgz"
@@ -28,8 +42,6 @@ fi
 
 # shellcheck source=lib/core.sh
 . "$ROOT/lib/core.sh"
-
-VERSION="0.2.0"
 
 usage() {
   cat >&2 <<'EOF'

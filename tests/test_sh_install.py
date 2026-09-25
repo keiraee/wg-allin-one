@@ -67,6 +67,28 @@ class InstallTests(unittest.TestCase):
                          "stage_files in-place crashed (rc=%d): %s" % (r.returncode, r.stderr))
         self.assertIn("跳过复制", r.stderr + r.stdout)
 
+    def test_sync_config_inplace_no_crash(self):
+        """Regression: sync_config must not cp config.json onto itself."""
+        cfg = ROOT / "config.json"
+        existed = cfg.exists()
+        if not existed:
+            cfg.write_text('{"test": true}\n', encoding="utf-8")
+        try:
+            script = (
+                'set -Eeuo pipefail; '
+                'ROOT="$(pwd)"; '
+                '. lib/core.sh; . lib/install.sh; '
+                'sync_config "$(pwd)"'
+            )
+            r = subprocess.run(["bash", "-c", script],
+                               capture_output=True, text=True, timeout=60,
+                               cwd=str(ROOT), encoding="utf-8")
+            self.assertEqual(r.returncode, 0,
+                             "sync_config in-place crashed (rc=%d): %s" % (r.returncode, r.stderr))
+        finally:
+            if not existed:
+                cfg.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

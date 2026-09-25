@@ -11,6 +11,18 @@ ask() {  # ask "提示" "默认值" → stdout 答案
   printf '%s' "${ans:-$def}"
 }
 
+detect_ip() {
+  local ip s
+  for s in "https://api.ipify.org" "https://ifconfig.me/ip" "https://icanhazip.com"; do
+    ip="$(curl -fsSL --max-time 4 "$s" 2>/dev/null | tr -d '[:space:]')"
+    if printf '%s' "$ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+      printf '%s' "$ip"
+      return 0
+    fi
+  done
+  return 1
+}
+
 run_wizard() {
   local py; py="$(find_python)"
   log "开始安装向导(全部可回车用默认值)"
@@ -22,17 +34,18 @@ run_wizard() {
   # 2. 服务端口
   wg_port="$(ask '服务端口 UDP(一般不用改)' '51820')"
 
-  # 3. 设备连接地址(自动检测公网IP)
+  # 3. 设备连接地址(自动检测公网IP, 多源回退)
   local detected def_endpoint
   if [ "${WGAIO_SKIP_DETECT:-}" = "1" ]; then
     detected=""
   else
-    detected="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+    detected="$(detect_ip || true)"
   fi
   if [ -n "$detected" ]; then
     def_endpoint="${detected}:51820"
   else
     def_endpoint=""
+    warn "自动探测公网 IP 失败, 请手动输入(形如 1.2.3.4:51820)"
   fi
   endpoint="$(ask '设备连接地址(手机/电脑连 VPN 时要填的服务器地址)' "$def_endpoint")"
   [ -n "$endpoint" ] || die "endpoint 不能为空"
