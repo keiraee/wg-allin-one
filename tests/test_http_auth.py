@@ -72,6 +72,7 @@ class AuthTests(HttpTestBase):
         self.assertIn("text/html", hd.get("Content-Type", ""))
         st, hd, body = self.req("GET", "/static/style.css")
         self.assertEqual(st, 200)
+        self.assertIn("Content-Security-Policy", hd)
 
     def test_api_requires_auth(self):
         st, hd, body = self.req("GET", "/api/status")

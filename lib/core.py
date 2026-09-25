@@ -722,6 +722,8 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy",
+                         "script-src 'self'; object-src 'none'; base-uri 'self'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items():

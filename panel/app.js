@@ -83,6 +83,22 @@ $("login-token").addEventListener("keydown", (e) => {
   if (e.key === "Enter") tryLogin();
 });
 
+// ---- delegated click handler (replaces all inline onclick) ----
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const name = btn.dataset.name || "";
+  const act = btn.dataset.action;
+  if (act === "dl") dlConf(name);
+  else if (act === "edit") editPeer(name);
+  else if (act === "del") delPeer(name, btn.dataset.gw === "1");
+  else if (act === "del-force") doDel(name, true);
+  else if (act === "del-noconf") doDel(name, false);
+  else if (act === "save") saveEdit(name);
+  else if (act === "copy") copyConf();
+  else if (act === "close") closeModal();
+});
+
 function extraRoutesOf(p) {
   return p.allowed_ips.filter((a) => a !== p.ip + "/32").join(", ");
 }
@@ -97,7 +113,7 @@ function renderRows(st) {
     const gw = p.is_gateway ? ' <span class="dot accent" title="内网网关"></span>' : "";
     const routes = extraRoutesOf(p) || "—";
     return `<tr>
-      <td><span class="dot ${p.state}" title="${STATE_TXT[p.state] || p.state}"></span>${STATE_TXT[p.state] || p.state}</td>
+      <td><span class="dot ${esc(p.state)}" title="${esc(STATE_TXT[p.state] || p.state)}"></span>${STATE_TXT[p.state] || p.state}</td>
       <td>${esc(p.name)}${gw}</td>
       <td class="mono">${esc(p.ip)}</td>
       <td class="mono muted">${esc(routes)}</td>
@@ -105,9 +121,9 @@ function renderRows(st) {
       <td class="mono">${fmtBytes(p.rx)}</td>
       <td class="mono">${fmtBytes(p.tx)}</td>
       <td class="ops">
-        ${p.has_client ? `<button class="mini" onclick="dlConf('${esc(p.name)}')">下载</button>` : ""}
-        <button class="mini" onclick="editPeer('${esc(p.name)}')">修改</button>
-        <button class="mini danger" onclick="delPeer('${esc(p.name)}',${p.is_gateway})">删除</button>
+        ${p.has_client ? `<button class="mini" data-action="dl" data-name="${esc(p.name)}">下载</button>` : ""}
+        <button class="mini" data-action="edit" data-name="${esc(p.name)}">修改</button>
+        <button class="mini danger" data-action="del" data-name="${esc(p.name)}" data-gw="${p.is_gateway ? "1" : "0"}">删除</button>
       </td>
     </tr>`;
   }).join("");
@@ -150,9 +166,9 @@ $("btn-add").addEventListener("click", async () => {
       `<p class="hint">把下面内容保存为 <b>${esc(d.peer.name)}.conf</b> 发到设备上, 在 WireGuard 里「从文件导入」即可。</p>
        <pre id="conf-text">${esc(d.conf)}</pre>
        <div class="modal-ops">
-         <button onclick="copyConf()">复制内容</button>
-         <button class="primary" onclick="dlConf('${esc(d.peer.name)}')">下载 .conf</button>
-         <button onclick="closeModal()">关闭</button>
+         <button data-action="copy">复制内容</button>
+         <button class="primary" data-action="dl" data-name="${esc(d.peer.name)}">下载 .conf</button>
+         <button data-action="close">关闭</button>
        </div>`);
     showMsg("设备 " + d.peer.name + " 已创建");
     refresh();
@@ -168,7 +184,12 @@ function copyConf() {
 }
 
 function dlConf(name) {
-  window.open("/api/peers/" + encodeURIComponent(name) + "/conf", "_blank");
+  const a = document.createElement("a");
+  a.href = "/api/peers/" + encodeURIComponent(name) + "/conf";
+  a.download = name + ".conf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function editPeer(name) {
@@ -179,7 +200,7 @@ function editPeer(name) {
       `<label class="field">设备名<input id="e-name" maxlength="15" value="${esc(p.name)}"></label>
        <label class="field">内网 IP<input id="e-ip" class="mono" value="${esc(p.ip)}"></label>
        <label class="field">DNS(重下载配置生效)<input id="e-dns" class="mono" value=""></label>
-       <label class="field">保活(秒)<input id="e-ka" class="mono" value="${p.keepalive || 25}"></label>
+       <label class="field">保活(秒)<input id="e-ka" class="mono" value="${esc(String(p.keepalive != null ? p.keepalive : 25))}"></label>
        <label class="field">流量模式
          <select id="e-mode">
            <option value="split">分流(只进内网)</option>
@@ -190,10 +211,12 @@ function editPeer(name) {
        ${p.is_gateway ? '<p class="warn-text">⚠ 这是内网网关, 改动请确认无误。</p>' : ""}
        <p class="hint">改 IP/名称后请重新下载 .conf 导入到设备。全隧道需要服务端转发配合。</p>
        <div class="modal-ops">
-         <button class="primary" onclick="saveEdit('${esc(p.name)}')">保存</button>
-         <button onclick="closeModal()">取消</button>
+         <button class="primary" data-action="save" data-name="${esc(p.name)}">保存</button>
+         <button data-action="close">取消</button>
        </div>`);
     $("e-mode").value = p.mode || "split";
+    $("e-mode").dataset.dirty = "0";
+    $("e-mode").addEventListener("change", () => { $("e-mode").dataset.dirty = "1"; });
   }).catch((e) => showMsg("读取设备失败: " + e.message, true));
 }
 
@@ -207,7 +230,7 @@ async function saveEdit(name) {
         ip: $("e-ip").value.trim(),
         dns: $("e-dns").value.trim() || undefined,
         keepalive: $("e-ka").value.trim(),
-        mode: $("e-mode").value,
+        mode: $("e-mode").dataset.dirty === "1" ? $("e-mode").value : undefined,
         routes: $("e-routes").value.trim(),
       }),
     });
@@ -224,9 +247,9 @@ function delPeer(name, isGateway) {
      ${isGateway ? '<p class="warn-text">⚠ 这是内网网关! 删除后 VPN 进内网会断! 若确定, 再点一次「仍要删除」。</p>' : ""}
      <div class="modal-ops">
        ${isGateway
-         ? `<button class="danger" onclick="doDel('${esc(name)}',true)">仍要删除</button>`
-         : `<button class="danger" onclick="doDel('${esc(name)}',false)">删除</button>`}
-       <button onclick="closeModal()">取消</button>
+         ? `<button class="danger" data-action="del-force" data-name="${esc(name)}">仍要删除</button>`
+         : `<button class="danger" data-action="del-noconf" data-name="${esc(name)}">删除</button>`}
+       <button data-action="close">取消</button>
      </div>`);
 }
 
@@ -242,8 +265,8 @@ async function doDel(name, force) {
       openModal("需要二次确认",
         `<p class="warn-text">${esc(e.message)}</p>
          <div class="modal-ops">
-           <button class="danger" onclick="doDel('${esc(name)}',true)">仍要删除</button>
-           <button onclick="closeModal()">取消</button>
+           <button class="danger" data-action="del-force" data-name="${esc(name)}">仍要删除</button>
+           <button data-action="close">取消</button>
          </div>`);
     } else {
       showMsg("删除失败: " + e.message, true);
