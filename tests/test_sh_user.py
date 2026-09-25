@@ -59,19 +59,33 @@ class UserWrapperTests(unittest.TestCase):
         shutil.rmtree(self.sandbox, ignore_errors=True)
 
     def test_user_show_never_logged(self):
-        """包装层不得把 user show 的 stdout 写进任何日志文件。"""
+        """私钥只允许出现在 stdout: 除原始备份外, 任何文件都不得出现。"""
         logdir = self.sandbox / "logs"
         logdir.mkdir()
+        # 在沙箱造一个带私钥备份的设备(假密钥, 不触发仓库密钥守卫)
+        # 用 bash 创建, 确保 MSYS2 和 Windows Python 都可见
+        setup = (
+            "mkdir -p clients && "
+            "printf '[Interface]\\nPrivateKey = FAKEKEY-not-real\\n"
+            "Address = 10.66.66.2/32\\n' > clients/logtest.conf && "
+            "bash run.sh user show logtest"
+        )
         r = subprocess.run(
-            ["bash", "run.sh", "user", "show", "ghost"],
+            ["bash", "-c", setup],
             cwd=str(self.sandbox), capture_output=True, text=True,
             timeout=60, encoding="utf-8", errors="replace",
             env=dict(os.environ, WGAIO_LOG_DIR=str(logdir)))
-        self.assertEqual(r.returncode, 1)  # 无此设备 -> exit 1
-        bodies = "".join(
-            p.read_text(encoding="utf-8", errors="ignore")
-            for p in logdir.rglob("*") if p.is_file())
-        self.assertNotIn("PrivateKey", bodies)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("FAKEKEY-not-real", r.stdout)   # 私钥走 stdout(设计如此)
+        # 契约: 除原始备份文件外, 任何文件不得出现私钥内容
+        conf_p = self.sandbox / "clients" / "logtest.conf"
+        for p in (list(self.sandbox.rglob("*"))
+                  + list(logdir.rglob("*"))):
+            if not p.is_file() or p == conf_p or ".git" in p.parts:
+                continue
+            body = p.read_text(encoding="utf-8", errors="ignore")
+            self.assertNotIn("FAKEKEY-not-real", body,
+                             "私钥泄漏到文件: %s" % p)
 
     def test_user_list_works(self):
         r = subprocess.run(
