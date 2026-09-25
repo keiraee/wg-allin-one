@@ -476,13 +476,13 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             raise ApiError("找不到设备: %s" % name, 404)
         meta = load_client_meta(name) or {"name": name, "pubkey": peer["pubkey"],
                                           "routes": [], "ip": ""}
-        priv = read_priv(name)  # 先读私钥 —— 改名会删旧文件, 之后就读不到了
+        priv = read_priv(name)
+        old_name = name
 
         if new_name and new_name != name:
             new_name = normalize_name(new_name)
             if find_peer(peers, new_name) or load_client_meta(new_name):
                 raise ApiError("设备名已存在: %s" % new_name)
-            drop_client(name)
             peer["name"] = new_name
             meta["name"] = new_name
             name = new_name
@@ -534,6 +534,8 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1),
                               encoding="utf-8")
             meta_p.chmod(0o600)
+        if old_name != name:
+            drop_client(old_name)
         return meta
 
 

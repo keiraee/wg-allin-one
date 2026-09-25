@@ -95,6 +95,14 @@ class DelEditTests(PeerBase):
         _, peers = core.parse_conf()
         self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.5/32", "192.168.1.0/24"])
 
+    def test_rename_keeps_key_when_write_fails(self, m_gen, m_pub, m_set):
+        core.add_peer("phone", None, None, None, None, None, CFG)
+        with mock.patch("core.write_conf", side_effect=core.ApiError("写入失败", 500)):
+            with self.assertRaises(core.ApiError):
+                core.update_peer("phone", new_name="phone2", cfg=CFG)
+        self.assertEqual(core.read_priv("phone"), "PRIV")
+        self.assertFalse(core.client_paths("phone2")[0].exists())
+
     def test_rename_manual_peer_keeps_meta(self, m_gen, m_pub, m_set):
         iface, peers = core.parse_conf()
         peers.append({"name": "manual", "pubkey": "MPUB",
