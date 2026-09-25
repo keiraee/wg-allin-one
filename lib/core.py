@@ -7,11 +7,15 @@ import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
 import time
+from http.cookies import SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs, unquote
 
 BASE = Path(os.environ.get("WGAIO_BASE", "/opt/wgaio"))
 CLIENTS = BASE / "clients"
@@ -310,7 +314,10 @@ def server_pubkey():
     if Path(WG_CONF).exists():
         m = _PRIVKEY_RE.search(Path(WG_CONF).read_text(encoding="utf-8"))
         if m:
-            return run_wg(["pubkey"], input_text=m.group(1) + "\n").strip()
+            try:
+                return run_wg(["pubkey"], input_text=m.group(1) + "\n").strip()
+            except ApiError:
+                pass
     return ""
 
 
@@ -352,6 +359,8 @@ def read_priv(name):
 
 
 _conf_lock = threading.Lock()
+_sessions_lock = threading.Lock()
+_sessions = set()
 
 
 def wg_set_peer(pubkey, allowed_ips=None, keepalive=None, remove=False):
@@ -601,7 +610,8 @@ def full_status(cfg):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="wgaio", description="WireGuard 设备管理核心")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    parser.add_argument("--serve", action="store_true", help="启动面板 HTTP 服务")
+    sub = parser.add_subparsers(dest="cmd", required=False)
     user = sub.add_parser("user", help="设备管理")
     usub = user.add_subparsers(dest="ucmd", required=True)
 
@@ -632,6 +642,15 @@ def main(argv=None):
     p_show.add_argument("name")
 
     args = parser.parse_args(argv)
+    if args.serve:
+        try:
+            serve()
+        except ApiError as e:
+            print("错误: %s" % e, file=sys.stderr)
+            return 1
+        return 0
+    if not args.cmd:
+        parser.error("需要子命令或 --serve")
     try:
         cfg = load_config()
         if args.ucmd == "add":
@@ -673,6 +692,143 @@ def verify_token(plain, token_hash):
         return hmac.compare_digest(hash_token(plain), str(token_hash))
     except Exception:
         return False
+
+
+PAGES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/static/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/static/app.js": ("app.js", "application/javascript; charset=utf-8"),
+}
+MAX_BODY = 64 * 1024
+
+
+class PanelHandler(BaseHTTPRequestHandler):
+    server_version = "wgaio/1.0"
+
+    def log_message(self, fmt, *args):
+        pass  # 不落访问日志: 防止令牌/私钥随日志外泄
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _json(self, obj, code=200):
+        self._send(code, json.dumps(obj, ensure_ascii=False))
+
+    def _body(self):
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            raise ApiError("只接受 application/json", 415)
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > MAX_BODY:
+            raise ApiError("请求体不合法", 400)
+        try:
+            data = json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception:
+            raise ApiError("请求体不是合法 JSON", 400)
+        if not isinstance(data, dict):
+            raise ApiError("请求体须为 JSON 对象", 400)
+        return data
+
+    def _session(self):
+        raw = self.headers.get("Cookie") or ""
+        c = SimpleCookie()
+        try:
+            c.load(raw)
+        except Exception:
+            return None
+        m = c.get("wgaio_sess")
+        return m.value if m else None
+
+    def _authed(self):
+        s = self._session()
+        if not s:
+            return False
+        with _sessions_lock:
+            return s in _sessions
+
+    def _cfg(self):
+        return self.server.app_cfg
+
+    def _handle(self, method):
+        try:
+            u = urlparse(self.path)
+            parts = [unquote(x) for x in u.path.split("/") if x]
+            if u.path in PAGES and method == "GET":
+                fname, ctype = PAGES[u.path]
+                self._send(200, (BASE / "panel" / fname).read_bytes(), ctype)
+                return
+            if parts[:2] == ["api", "login"] and method == "POST":
+                b = self._body()
+                if not verify_token(b.get("token"), self._cfg().get("panel_token_hash")):
+                    self._json({"ok": False, "error": "令牌错误"}, 401)
+                    return
+                sess = secrets.token_hex(32)
+                with _sessions_lock:
+                    _sessions.add(sess)
+                self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
+                           extra={"Set-Cookie":
+                                  "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/" % sess})
+                return
+            if parts[:1] == ["api"]:
+                if not self._authed():
+                    self._json({"ok": False, "error": "未登录"}, 401)
+                    return
+                self._api(method, parts, u)
+                return
+            self._json({"ok": False, "error": "页面不存在"}, 404)
+        except ApiError as e:
+            self._json({"ok": False, "error": str(e)}, e.code)
+        except Exception as e:
+            self._json({"ok": False, "error": "内部错误: %s" % e}, 500)
+
+    def _api(self, method, parts, u):
+        if parts == ["api", "status"] and method == "GET":
+            self._json(full_status(self._cfg()))
+            return
+        raise ApiError("接口不存在", 404)
+
+    def do_GET(self):
+        self._handle("GET")
+
+    def do_POST(self):
+        self._handle("POST")
+
+    def do_PATCH(self):
+        self._handle("PATCH")
+
+    def do_DELETE(self):
+        self._handle("DELETE")
+
+
+def start_server(cfg):
+    bind = cfg.get("panel_bind") or "127.0.0.1"
+    port = int(cfg.get("panel_port") or 8888)
+    httpd = ThreadingHTTPServer((bind, port), PanelHandler)
+    httpd.app_cfg = cfg
+    return httpd
+
+
+def serve(cfg=None):
+    cfg = cfg or load_config()
+    httpd = start_server(cfg)
+    host, port = httpd.server_address[0], httpd.server_address[1]
+    print("wgaio 面板已启动: http://%s:%d (令牌登录)" % (host, port), flush=True)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
 
 
 if __name__ == "__main__":
