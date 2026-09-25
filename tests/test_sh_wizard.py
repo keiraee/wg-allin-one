@@ -25,7 +25,8 @@ class WizardTests(unittest.TestCase):
             root = make_sandbox(tmp.name)
         except OSError:
             self.skipTest("需要 symlink 权限")
-        script = "bash wgaio.sh install --wizard-only <<'EOF'\n%s\nEOF" % heredoc
+        script = ("WGAIO_SKIP_DETECT=1 bash wgaio.sh install --wizard-only <<'EOF'\n"
+                  "%s\nEOF" % heredoc)
         r = subprocess.run(["bash", "-c", script], cwd=str(root),
                            capture_output=True, text=True, timeout=60,
                            encoding="utf-8")
@@ -68,7 +69,21 @@ class WizardTests(unittest.TestCase):
         r, root = self._run_wizard(
             "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "foo\n")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("split/full", r.stderr)
+        self.assertIn("1 或 2", r.stderr)
+
+    def test_wizard_public_access_bind(self):
+        r, root = self._run_wizard(
+            "\n"                      # vpn_cidr 默认
+            "\n"                      # wg_port 默认
+            "203.0.113.7:51820\n"     # endpoint
+            "\n"                      # client_dns 默认
+            "\n"                      # lan_cidrs 默认空
+            "2\n"                     # 面板访问: 公网
+            "\n"                      # panel_port 默认
+            "\n")                     # 流量模式默认
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["panel_bind"], "0.0.0.0")
 
     def test_wizard_eof_rejects_empty_endpoint(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -77,7 +92,8 @@ class WizardTests(unittest.TestCase):
             root = make_sandbox(tmp.name)
         except OSError:
             self.skipTest("需要 symlink 权限")
-        r = subprocess.run(["bash", "-c", "bash wgaio.sh install --wizard-only </dev/null"],
+        r = subprocess.run(["bash", "-c",
+                            "WGAIO_SKIP_DETECT=1 bash wgaio.sh install --wizard-only </dev/null"],
                            cwd=str(root), capture_output=True, text=True,
                            timeout=60, encoding="utf-8")
         self.assertEqual(r.returncode, 1)

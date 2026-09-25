@@ -27,9 +27,10 @@ class InstallTests(unittest.TestCase):
             root = make_sandbox(tmp.name)
         except OSError:
             self.skipTest("需要 symlink 权限")
-        env_cmd = ""
+        all_env = {"WGAIO_SKIP_DETECT": "1"}
         if extra_env:
-            env_cmd = " ".join("%s=%s" % kv for kv in extra_env.items()) + " "
+            all_env.update(extra_env)
+        env_cmd = " ".join("%s=%s" % kv for kv in all_env.items()) + " "
         script = (env_cmd +
                   "bash wgaio.sh install --dry-run <<'EOF'\n"
                   "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "\nEOF")
@@ -50,6 +51,21 @@ class InstallTests(unittest.TestCase):
     def test_install_dry_run_ok_without_root(self):
         r, root = self._run_install(extra_env={"WGAIO_FORCE_NONROOT": "1"})
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_stage_files_inplace_no_crash(self):
+        """Regression: stage_files must not cp file onto itself (the pre-fix crash)."""
+        script = (
+            'set -Eeuo pipefail; '
+            'ROOT="$(pwd)"; '
+            '. lib/core.sh; . lib/install.sh; '
+            'stage_files "$(pwd)"'
+        )
+        r = subprocess.run(["bash", "-c", script],
+                           capture_output=True, text=True, timeout=60,
+                           cwd=str(ROOT), encoding="utf-8")
+        self.assertEqual(r.returncode, 0,
+                         "stage_files in-place crashed (rc=%d): %s" % (r.returncode, r.stderr))
+        self.assertIn("跳过复制", r.stderr + r.stdout)
 
 
 if __name__ == "__main__":

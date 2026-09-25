@@ -5,14 +5,12 @@
 ## 快速开始
 
 ```bash
-curl -fsSL https://github.com/keiraee/wg-allin-one/archive/refs/tags/v0.1.0.tar.gz -o wgaio.tar.gz
-tar xzf wgaio.tar.gz && cd wg-allin-one-0.1.0
-sudo bash wgaio.sh install
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh -o wgaio.sh && sudo bash wgaio.sh install
 ```
 
-按中文向导回车即可; 装完把显示的访问令牌保存好——只显示一次。
+按中文向导回车即可; 装完把令牌保存好(只显示一次)。
 
-**安装会做什么**: 写入 `/usr/local/bin/wgaio` 包装、部署文件到 `/opt/wgaio`、
+**安装会做什么**: 写入 `/usr/local/bin/wgaio` 包装、下载完整套件到 `/opt/wgaio`、
 创建并启动 systemd 服务 `wgaio-panel.service`。(卸载: `wgaio uninstall`, 不动 /etc/wireguard)
 
 ## 重要: 安全组
@@ -36,6 +34,7 @@ wgaio uninstall
 ## 安全面说明
 
 - 面板只在 VPN 内网监听 + 令牌登录(哈希存储); 请勿把面板端口暴露公网;
+- 公网开放面板时建议配合域名+HTTPS(后续版本支持自动证书); 纯 HTTP 公网下令牌明文传输有被窃听风险。
 - `wgaio user show` 的输出含设备私钥, 禁止落日志。
 - (面板默认绑定 VPN 隧道地址; 若自定义绑定, 请勿填 0.0.0.0)
 

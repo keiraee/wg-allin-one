@@ -14,16 +14,59 @@ ask() {  # ask "提示" "默认值" → stdout 答案
 run_wizard() {
   local py; py="$(find_python)"
   log "开始安装向导(全部可回车用默认值)"
-  local vpn_cidr wg_port endpoint client_dns lan_cidrs panel_bind panel_port def_mode
-  vpn_cidr="$(ask 'VPN 网段' '10.66.66.0/24')"
-  wg_port="$(ask 'WireGuard 监听端口(UDP)' '51820')"
-  endpoint="$(ask '客户端接入点(公网IP或域名:端口)' '')"
-  client_dns="$(ask '客户端 DNS' '1.1.1.1')"
-  lan_cidrs="$(ask '内网路由段(逗号分隔, 可空)' '')"
-  panel_bind="$(ask '面板绑定地址(默认 VPN 隧道地址)' '')"
-  panel_port="$(ask '面板端口' '8888')"
-  def_mode="$(ask '新设备默认流量模式 split/full' 'split')"
+  local vpn_cidr wg_port endpoint client_dns lan_cidrs panel_bind panel_port def_mode access_choice mode_choice
+
+  # 1. WireGuard 网段
+  vpn_cidr="$(ask 'WireGuard 网段(设备互联用, 一般不用改)' '10.66.66.0/24')"
+
+  # 2. 服务端口
+  wg_port="$(ask '服务端口 UDP(一般不用改)' '51820')"
+
+  # 3. 设备连接地址(自动检测公网IP)
+  local detected def_endpoint
+  if [ "${WGAIO_SKIP_DETECT:-}" = "1" ]; then
+    detected=""
+  else
+    detected="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  fi
+  if [ -n "$detected" ]; then
+    def_endpoint="${detected}:51820"
+  else
+    def_endpoint=""
+  fi
+  endpoint="$(ask '设备连接地址(手机/电脑连 VPN 时要填的服务器地址)' "$def_endpoint")"
   [ -n "$endpoint" ] || die "endpoint 不能为空"
+
+  # 4. 设备 DNS
+  client_dns="$(ask '设备 DNS(设备连上后解析域名用)' '1.1.1.1')"
+
+  # 5. 内网路由段
+  lan_cidrs="$(ask '内网路由段(如 192.168.1.0/24, 让设备能访问家里/公司内网; 不需要直接回车)' '')"
+
+  # 6. 面板访问范围(菜单选择)
+  printf '面板从哪里可以打开:\n' >&2
+  printf '  1) 仅 VPN 内(更安全)\n' >&2
+  printf '  2) 公网直接访问(方便, 令牌登录)\n' >&2
+  access_choice="$(ask '选 1 或 2' '1')"
+  case "$access_choice" in
+    1) panel_bind="" ;;
+    2) panel_bind="0.0.0.0" ;;
+    *) die "无效选择, 请输入 1 或 2" ;;
+  esac
+
+  # 7. 面板端口
+  panel_port="$(ask '面板端口' '8888')"
+
+  # 8. 流量模式(菜单选择)
+  printf '新设备连上后怎么走流量:\n' >&2
+  printf '  1) 只访问 VPN/内网, 其余走自己流量(省流量)\n' >&2
+  printf '  2) 全部流量走服务器(隐藏上网地点)\n' >&2
+  mode_choice="$(ask '选 1 或 2' '1')"
+  case "$mode_choice" in
+    1) def_mode="split" ;;
+    2) def_mode="full" ;;
+    *) die "无效选择, 请输入 1 或 2" ;;
+  esac
 
   local token hash
   token="$("$py" -c 'import secrets;print(secrets.token_hex(24))')"

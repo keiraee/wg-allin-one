@@ -4,6 +4,28 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
+
+# --- 引导模式: 单文件下载时自动拉取完整套件 ---
+if [ ! -f "$ROOT/lib/core.py" ]; then
+  if [ "${1:-}" = "version" ]; then printf 'wgaio %s\n' "0.1.0"; exit 0; fi
+  DEST="${WGAIO_DIR:-/opt/wgaio}"
+  printf '[wgaio] 引导模式: 正在下载完整套件到 %s ...\n' "$DEST"
+  if [ "$(id -u)" -ne 0 ]; then
+    printf '[wgaio] 错误: 首次引导需要 root(写入 %s), 请用: sudo bash wgaio.sh install\n' "$DEST" >&2
+    exit 1
+  fi
+  command -v curl >/dev/null 2>&1 || { printf '[wgaio] 错误: 需要 curl\n' >&2; exit 1; }
+  mkdir -p "$DEST"
+  VER="v0.1.0"
+  curl -fsSL "https://github.com/keiraee/wg-allin-one/archive/refs/tags/${VER}.tar.gz" -o "$DEST/.wgaio.tgz" \
+    || { printf '[wgaio] 错误: 套件下载失败\n' >&2; exit 1; }
+  tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1
+  rm -f "$DEST/.wgaio.tgz"
+  printf '[wgaio] 套件就绪, 继续安装...\n'
+  exec bash "$DEST/wgaio.sh" "$@"
+fi
+# --- 引导结束 ---
+
 # shellcheck source=lib/core.sh
 . "$ROOT/lib/core.sh"
 

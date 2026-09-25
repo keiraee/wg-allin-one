@@ -35,6 +35,21 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("add", r.stdout)
 
+    def test_bare_version_no_download(self):
+        """Bootstrap mode: bare wgaio.sh (no lib/) prints version without downloading."""
+        import tempfile as _tf
+        tmp = _tf.mkdtemp()
+        bare = Path(tmp) / "wgaio.sh"
+        bare.write_bytes((ROOT / "wgaio.sh").read_bytes())
+        r = subprocess.run(["bash", "wgaio.sh", "version"],
+                           capture_output=True, text=True, timeout=30,
+                           cwd=tmp, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("wgaio", r.stdout)
+        self.assertIn("0.1.0", r.stdout)
+        # Must not have created any download artifacts
+        self.assertFalse((Path(tmp) / "lib").exists())
+
     def test_find_python_skips_broken_stub(self):
         import tempfile as _tf
         stubdir = _tf.mkdtemp()

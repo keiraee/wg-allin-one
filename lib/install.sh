@@ -5,6 +5,23 @@
 . "$ROOT/lib/core.sh"
 . "$ROOT/lib/wizard.sh"
 
+stage_files() {  # stage_files <dest>
+  local dest="$1"
+  local src
+  src="$(cd "$ROOT" && pwd)"
+  if [ "$src" = "$(cd "$dest" 2>/dev/null && pwd)" ]; then
+    log "文件已在位(安装目录=运行目录), 跳过复制"
+    return 0
+  fi
+  install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
+  shopt -s nullglob
+  cp -f "$ROOT/lib/core.py" "$dest/lib/core.py"
+  cp -f "$ROOT"/lib/*.sh "$dest/lib/"
+  cp -f "$ROOT"/panel/* "$dest/panel/"
+  cp -f "$ROOT/wgaio.sh" "$dest/wgaio.sh"
+  shopt -u nullglob
+}
+
 cmd_install() {
   if [ "${1:-}" = "--wizard-only" ]; then
     run_wizard
@@ -25,12 +42,7 @@ cmd_install() {
   [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
 
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
-  cp -f "$ROOT/lib/core.py" "$dest/lib/core.py"
-  shopt -s nullglob
-  cp -f "$ROOT"/lib/*.sh "$dest/lib/"
-  cp -f "$ROOT"/panel/* "$dest/panel/"
-  shopt -u nullglob
-  cp -f "$ROOT/wgaio.sh" "$dest/wgaio.sh"
+  stage_files "$dest"
   cp -f "$ROOT/config.json" "$dest/config.json"
   chmod 600 "$dest/config.json"
 
