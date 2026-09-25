@@ -28,6 +28,8 @@ def make_sandbox(root):
         os.symlink(ROOT / "wgaio.sh", root / "wgaio.sh")
     except OSError:
         pass
+    for critical in ("lib/core.py", "lib/user.sh"):
+        assert (root / critical).exists(), "沙箱 symlink 失败: %s" % critical
     # runner.sh: creates config/wg0.conf, exports env, delegates to wgaio.sh
     runner = root / "run.sh"
     cfg_json = json.dumps(CFG)
@@ -51,7 +53,7 @@ class UserWrapperTests(unittest.TestCase):
     def setUp(self):
         self.sandbox = ROOT / "_test_user_sandbox"
         if self.sandbox.exists():
-            shutil.rmtree(self.sandbox)
+            shutil.rmtree(self.sandbox, ignore_errors=True)
         self.sandbox.mkdir()
         make_sandbox(self.sandbox)
 
@@ -74,9 +76,12 @@ class UserWrapperTests(unittest.TestCase):
             ["bash", "-c", setup],
             cwd=str(self.sandbox), capture_output=True, text=True,
             timeout=60, encoding="utf-8", errors="replace",
+            # WGAIO_LOG_DIR 是"额外偏执"扫描目标; 真正的守卫是下面的全沙箱扫描
             env=dict(os.environ, WGAIO_LOG_DIR=str(logdir)))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("FAKEKEY-not-real", r.stdout)   # 私钥走 stdout(设计如此)
+        self.assertNotIn("FAKEKEY-not-real", r.stderr,
+                         "私钥泄漏到 stderr (systemd 下会进 journal)")
         # 契约: 除原始备份文件外, 任何文件不得出现私钥内容
         conf_p = self.sandbox / "clients" / "logtest.conf"
         for p in (list(self.sandbox.rglob("*"))
@@ -86,6 +91,14 @@ class UserWrapperTests(unittest.TestCase):
             body = p.read_text(encoding="utf-8", errors="ignore")
             self.assertNotIn("FAKEKEY-not-real", body,
                              "私钥泄漏到文件: %s" % p)
+
+    def test_user_show_missing_exits_1(self):
+        r = subprocess.run(
+            ["bash", "run.sh", "user", "show", "ghost"],
+            cwd=str(self.sandbox), capture_output=True,
+            text=True, timeout=60, encoding="utf-8", errors="replace")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("错误", r.stderr)
 
     def test_user_list_works(self):
         r = subprocess.run(
