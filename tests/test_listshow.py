@@ -84,6 +84,9 @@ class ListShowTests(unittest.TestCase):
         self.assertEqual(st["next_ip"], "10.66.66.3")
         self.assertEqual(len(st["peers"]), 1)
         self.assertEqual(st["endpoint"], "203.0.113.1:51820")
+        self.assertEqual(st["panel_bind"], "")
+        public = core.full_status(dict(CFG, panel_bind="0.0.0.0"))
+        self.assertEqual(public["panel_bind"], "0.0.0.0")
         self.assertEqual(st["iface"]["name"], "wg0")
 
     @mock.patch("core.wg_set_peer")

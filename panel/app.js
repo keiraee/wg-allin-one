@@ -147,6 +147,10 @@ async function refresh() {
     $("st-ep").textContent = st.endpoint;
     $("st-pub").textContent = st.iface.public_key ? st.iface.public_key.slice(0, 16) + "…" : "(未配置)";
     $("st-count").textContent = st.peers.length + " 个";
+    const bind = st.panel_bind || "";
+    $("access-tag").textContent = bind === "0.0.0.0"
+      ? "公网可访问 · 建议使用 HTTPS"
+      : (bind ? "只监听 " + bind : "管理面板");
     if (!$("f-ip").value) $("f-ip").placeholder = st.next_ip || "地址池已满";
     renderRows(st);
   } catch (e) {

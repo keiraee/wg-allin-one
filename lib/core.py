@@ -679,6 +679,7 @@ def full_status(cfg):
                   "listen_port": listen_port or cfg.get("wg_port", 51820),
                   "public_key": server_pubkey()},
         "endpoint": cfg.get("endpoint", ""),
+        "panel_bind": cfg.get("panel_bind") or "",
         "default_allowed": ", ".join(
             [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or [])),
         "next_ip": nip,
