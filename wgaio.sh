@@ -19,6 +19,7 @@ usage() {
   panel start|stop|status|restart  面板服务管理
   status                  总览
   upgrade | uninstall     升级 / 卸载
+  rollback                回滚到最近快照
 
 设备管理细节: wgaio user --help
 EOF

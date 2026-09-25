@@ -16,14 +16,15 @@ snapshot() {
   ts="$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dir/snapshots"
   tar czf "$dir/snapshots/wgaio-$ts.tar.gz" -C "$dir" \
-    --exclude=snapshots --exclude=clients config.json lib panel 2>/dev/null || true
+    --exclude=snapshots --exclude=clients config.json lib panel 2>/dev/null \
+    || die "快照创建失败, 升级中止(磁盘满或权限不足?)"
   log "快照: snapshots/wgaio-$ts.tar.gz"
 }
 
 cmd_upgrade() {
   check_sha256
   snapshot
-  log "升级完成(如需回滚: wgaio rollback)"
+  log "SHA256SUMS 校验通过 + 快照已创建; 升级覆盖步骤待实现(当前仅校验与快照)"
 }
 
 cmd_rollback() {

@@ -35,6 +35,23 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)   # 哈希不符 → 拒绝
         self.assertIn("校验", r.stderr)
 
+    def test_sha256sums_check_passes_when_valid(self):
+        import hashlib
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "lib").mkdir()
+        for f in ("core.sh", "upgrade.sh"):
+            os.symlink(ROOT / "lib" / f, root / "lib" / f)
+        (root / "payload.txt").write_text("hello", encoding="utf-8")
+        h = hashlib.sha256(b"hello").hexdigest()
+        (root / "SHA256SUMS").write_text("%s  payload.txt\n" % h, encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; check_sha256',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("校验通过", r.stdout + r.stderr)
+
 
 class UninstallTests(unittest.TestCase):
     def test_uninstall_dry_run_lists_targets(self):
@@ -55,7 +72,7 @@ class UninstallTests(unittest.TestCase):
 class StatusLogsTests(unittest.TestCase):
     def test_status_shows_summary(self):
         r = run_bash("bash wgaio.sh status")
-        self.assertIn("wgaio", (r.stdout + r.stderr).lower())
+        self.assertIn("状态总览", r.stdout + r.stderr)
 
     def test_logs_mentions_journal(self):
         r = run_bash("bash wgaio.sh logs")
