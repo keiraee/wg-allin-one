@@ -49,9 +49,38 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(cfg["endpoint"], "203.0.113.7:51820")
         self.assertEqual(cfg["vpn_cidr"], "10.66.66.0/24")
         self.assertEqual(cfg["wg_port"], 51820)
+        self.assertEqual(cfg["panel_bind"], "10.66.66.1")
         self.assertEqual(len(cfg["panel_token_hash"]), 64)
         self.assertIn("登录密码", r.stdout)
         self.assertIn("请立即保存", r.stdout)
+
+    def test_wizard_endpoint_default_uses_chosen_port_and_gateway(self):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        try:
+            root = make_sandbox(tmp.name)
+        except OSError:
+            self.skipTest("需要 symlink 权限")
+        script = (
+            "WGAIO_DETECT_IP=203.0.113.9 bash wgaio.sh install --wizard-only <<'EOF'\n"
+            "192.168.1.128/25\n"
+            "51821\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "\n"
+            "EOF\n"
+        )
+        r = subprocess.run(["bash", "-c", script], cwd=str(root),
+                           capture_output=True, text=True, timeout=60,
+                           encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["wg_port"], 51821)
+        self.assertEqual(cfg["endpoint"], "203.0.113.9:51821")
+        self.assertEqual(cfg["panel_bind"], "192.168.1.129")
 
     def test_wizard_rejects_bad_endpoint(self):
         r, root = self._run_wizard(

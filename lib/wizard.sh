@@ -12,6 +12,10 @@ ask() {  # ask "提示" "默认值" → stdout 答案
 }
 
 detect_ip() {
+  if [ -n "${WGAIO_DETECT_IP:-}" ]; then
+    printf '%s' "$WGAIO_DETECT_IP"
+    return 0
+  fi
   local ip s
   for s in "https://api.ipify.org" "https://ifconfig.me/ip" "https://icanhazip.com"; do
     ip="$(curl -fsSL --max-time 4 "$s" 2>/dev/null | tr -d '[:space:]')"
@@ -42,10 +46,10 @@ run_wizard() {
     detected="$(detect_ip || true)"
   fi
   if [ -n "$detected" ]; then
-    def_endpoint="${detected}:51820"
+    def_endpoint="${detected}:${wg_port}"
   else
     def_endpoint=""
-    warn "自动探测公网 IP 失败, 请手动输入(形如 1.2.3.4:51820)"
+    warn "自动探测公网 IP 失败, 请手动输入(形如 1.2.3.4:${wg_port})"
   fi
   endpoint="$(ask '设备连接地址(手机/电脑连 VPN 时要填的服务器地址)' "$def_endpoint")"
   [ -n "$endpoint" ] || die "endpoint 不能为空"
@@ -120,13 +124,20 @@ try:
     panel_port_i = int(panel_port)
 except ValueError:
     sys.exit("错误: 端口必须是纯数字(1-65535)")
+root = os.environ.get("WGAIO_ROOT", ".")
+sys.path.insert(0, os.path.join(root, "lib"))
+from core import ApiError, cidr_bounds, int_to_ip, validate_config
+try:
+    base, _last = cidr_bounds(vpn_cidr)
+except ValueError:
+    sys.exit("错误: vpn_cidr 不合法: %s" % vpn_cidr)
 cfg = {
     "vpn_cidr": vpn_cidr,
     "wg_port": wg_port_i,
     "endpoint": endpoint,
     "client_dns": client_dns,
     "lan_cidrs": [x.strip() for x in lan_cidrs.split(",") if x.strip()],
-    "panel_bind": panel_bind or (".".join(vpn_cidr.split(".")[:3]) + ".1"),
+    "panel_bind": panel_bind or int_to_ip(base + 1),
     "panel_port": panel_port_i,
     "panel_token_hash": thash,
     "default_mode": mode,
@@ -135,10 +146,7 @@ if tls_cert:
     cfg["tls_cert"] = tls_cert
     cfg["tls_key"] = tls_key
     cfg["tls_cn"] = tls_cn
-root = os.environ.get("WGAIO_ROOT", ".")
-sys.path.insert(0, os.path.join(root, "lib"))
 try:
-    from core import ApiError, validate_config
     validate_config(cfg)
 except ApiError as e:
     sys.exit("错误: %s" % e)
