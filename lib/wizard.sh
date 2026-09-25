@@ -27,7 +27,7 @@ run_wizard() {
 
   local token hash
   token="$("$py" -c 'import secrets;print(secrets.token_hex(24))')"
-  hash="$("$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$token")"
+  hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
         "$panel_bind" "$panel_port" "$def_mode" "$hash" <<'PY'
@@ -35,20 +35,31 @@ import json, os, re, sys
 vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash = sys.argv[1:]
 if not re.match(r"^[^:]+:\d+$", endpoint):
     sys.exit("错误: endpoint 格式应为 IP或域名:端口")
+try:
+    wg_port_i = int(wg_port)
+    panel_port_i = int(panel_port)
+except ValueError:
+    sys.exit("错误: 端口必须是纯数字(1-65535)")
 cfg = {
     "vpn_cidr": vpn_cidr,
-    "wg_port": int(wg_port),
+    "wg_port": wg_port_i,
     "endpoint": endpoint,
     "client_dns": client_dns,
     "lan_cidrs": [x.strip() for x in lan_cidrs.split(",") if x.strip()],
     "panel_bind": panel_bind or (".".join(vpn_cidr.split(".")[:3]) + ".1"),
-    "panel_port": int(panel_port),
+    "panel_port": panel_port_i,
     "panel_token_hash": thash,
     "default_mode": mode,
 }
 root = os.environ.get("WGAIO_ROOT", ".")
-open(os.path.join(root, "config.json"), "w", encoding="utf-8").write(
-    json.dumps(cfg, ensure_ascii=False, indent=2))
+sys.path.insert(0, os.path.join(root, "lib"))
+try:
+    from core import ApiError, validate_config
+    validate_config(cfg)
+except ApiError as e:
+    sys.exit("错误: %s" % e)
+with open(os.path.join(root, "config.json"), "w", encoding="utf-8") as f:
+    f.write(json.dumps(cfg, ensure_ascii=False, indent=2))
 PY
 
   printf '\n===== 面板访问令牌(只显示这一次, 请立即保存) =====\n%s\n==============================================\n' "$token"

@@ -58,6 +58,31 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("endpoint", r.stderr)
 
+    def test_wizard_rejects_bad_port(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "abc\n" "\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("端口", r.stderr)
+
+    def test_wizard_rejects_bad_mode(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "foo\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("split/full", r.stderr)
+
+    def test_wizard_eof_rejects_empty_endpoint(self):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        try:
+            root = make_sandbox(tmp.name)
+        except OSError:
+            self.skipTest("需要 symlink 权限")
+        r = subprocess.run(["bash", "-c", "bash wgaio.sh install --wizard-only </dev/null"],
+                           cwd=str(root), capture_output=True, text=True,
+                           timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("endpoint", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
