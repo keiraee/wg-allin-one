@@ -19,6 +19,7 @@ class TokenTests(unittest.TestCase):
         self.assertFalse(core.verify_token("wrong", h))
         self.assertFalse(core.verify_token("secret-token", ""))
         self.assertFalse(core.verify_token("", h))
+        self.assertFalse(core.verify_token("secret-token", None))
 
     def test_verify_tolerates_bad_hash_format(self):
         self.assertFalse(core.verify_token("x", "not-hex-but-string"))

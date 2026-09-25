@@ -661,10 +661,6 @@ def main(argv=None):
         return 2
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 def hash_token(plain):
     return hashlib.sha256((plain or "").encode("utf-8")).hexdigest()
 
@@ -673,6 +669,11 @@ def verify_token(plain, token_hash):
     if not token_hash:
         return False
     try:
+        # 非字符串哈希值(如 JSON 里的数字)先转 str, 比较失败即拒绝
         return hmac.compare_digest(hash_token(plain), str(token_hash))
     except Exception:
         return False
+
+
+if __name__ == "__main__":
+    sys.exit(main())
