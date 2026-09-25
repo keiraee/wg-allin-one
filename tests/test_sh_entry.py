@@ -36,7 +36,6 @@ class EntryTests(unittest.TestCase):
         self.assertIn("add", r.stdout)
 
     def test_find_python_skips_broken_stub(self):
-        import shutil
         import tempfile as _tf
         stubdir = _tf.mkdtemp()
         stub = Path(stubdir) / "python3"
