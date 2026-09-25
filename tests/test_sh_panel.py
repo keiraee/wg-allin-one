@@ -35,6 +35,25 @@ class PanelUnitTests(unittest.TestCase):
         out = r.stdout + r.stderr
         self.assertTrue("wgaio-panel" in out or "systemd" in out, out)
 
+    def test_unit_passes_systemd_verify(self):
+        """systemd-analyze 存在时必须校验单元语法(曾因路径引号炸过)。"""
+        import shutil
+        if not shutil.which("systemd-analyze"):
+            self.skipTest("无 systemd-analyze")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = Path(tmp.name) / "wgaio-panel.service"
+        r = subprocess.run(
+            ["bash", "-c",
+             '. lib/core.sh; . lib/panel.sh; WGAIO_UNIT_OUT="%s" write_panel_unit /opt/wgaio' % out],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        v = subprocess.run(["systemd-analyze", "verify", str(out)],
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        combined = v.stdout + v.stderr
+        self.assertNotIn("fatal error", combined, combined)
+        self.assertNotIn("bad unit file setting", combined, combined)
+
 
 if __name__ == "__main__":
     unittest.main()

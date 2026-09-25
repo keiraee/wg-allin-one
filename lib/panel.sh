@@ -14,8 +14,8 @@ Description=wgaio WireGuard panel
 After=network.target wg-quick@wg0.service
 
 [Service]
-ExecStart=$(find_python) "$root/lib/core.py" --serve
-WorkingDirectory="$root"
+ExecStart=$(find_python) $root/lib/core.py --serve
+WorkingDirectory=$root
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -24,6 +24,8 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+  # 注: systemd 不剥离路径引号(WorkingDirectory="..." 会被判非绝对路径),
+  # 故本单元不支持含空格的安装路径。
 }
 
 install_panel_unit() {

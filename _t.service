@@ -1,0 +1,14 @@
+[Unit]
+Description=wgaio WireGuard panel
+After=network.target wg-quick@wg0.service
+
+[Service]
+ExecStart=/d/ProgramSpace/Python/python "/opt/wgaio/lib/core.py" --serve
+WorkingDirectory="/opt/wgaio"
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@
 # wgaio 公共函数: 日志/报错/依赖/Python 定位
 set -Eeuo pipefail
 
-SUITE_VERSION="0.2.1"
+SUITE_VERSION="0.2.2"
 
 wgaio_root() { cd "$(dirname "${BASH_SOURCE[1]}")" && pwd; }
 
