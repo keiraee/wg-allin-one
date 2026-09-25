@@ -42,7 +42,9 @@ class InstallTests(unittest.TestCase):
     def test_install_dry_run_writes_layout(self):
         r, root = self._run_install()
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((root / "config.json").exists())
+        self.assertFalse((root / "config.json").exists())
+        self.assertTrue((root / "_stage" / "config.json").exists())
+        self.assertFalse((root / "certs").exists())
         self.assertTrue((root / "_stage" / "lib" / "core.py").exists())
         self.assertTrue((root / "_stage" / "panel" / "index.html").exists())
         self.assertIn("安全组", r.stdout)

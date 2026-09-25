@@ -125,6 +125,7 @@ try:
 except ValueError:
     sys.exit("错误: 端口必须是纯数字(1-65535)")
 root = os.environ.get("WGAIO_ROOT", ".")
+out_root = os.environ.get("WGAIO_CONFIG_DIR") or root
 sys.path.insert(0, os.path.join(root, "lib"))
 from core import ApiError, cidr_bounds, int_to_ip, validate_config
 try:
@@ -150,7 +151,8 @@ try:
     validate_config(cfg)
 except ApiError as e:
     sys.exit("错误: %s" % e)
-with open(os.path.join(root, "config.json"), "w", encoding="utf-8") as f:
+os.makedirs(out_root, exist_ok=True)
+with open(os.path.join(out_root, "config.json"), "w", encoding="utf-8") as f:
     f.write(json.dumps(cfg, ensure_ascii=False, indent=2))
 PY
 

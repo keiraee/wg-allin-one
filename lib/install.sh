@@ -91,7 +91,7 @@ stage_files() {  # stage_files <dest>
 
 sync_config() {  # sync_config <dest>
   local dest="$1"
-  if [ "$(cd "$ROOT" && pwd)" != "$(cd "$dest" && pwd)" ]; then
+  if [ "$(cd "$ROOT" && pwd)" != "$(cd "$dest" && pwd)" ] && [ -f "$ROOT/config.json" ]; then
     cp -f "$ROOT/config.json" "$dest/config.json"
   fi
   chmod 600 "$dest/config.json"
@@ -131,14 +131,18 @@ cmd_install() {
   fi
 
   umask 077
-  run_wizard
+  local dest="$WGAIO_ROOT"
+  [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
+  if [ "$dry" -eq 1 ]; then
+    install -d -m 700 "$dest"
+    WGAIO_CONFIG_DIR="$dest" run_wizard
+  else
+    run_wizard
+  fi
 
   if [ "$dry" -eq 0 ]; then
     install_deps
   fi
-
-  local dest="$WGAIO_ROOT"
-  [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
 
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
   stage_files "$dest"
@@ -148,7 +152,9 @@ cmd_install() {
     init_wg_hub
   fi
 
-  maybe_gen_tls
+  if [ "$dry" -eq 0 ]; then
+    maybe_gen_tls
+  fi
 
   if [ "$dry" -eq 0 ]; then
     cat > /usr/local/bin/wgaio <<EOF
