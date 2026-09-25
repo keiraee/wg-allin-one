@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import OrderedDict
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -360,7 +361,8 @@ def read_priv(name):
 
 _conf_lock = threading.Lock()
 _sessions_lock = threading.Lock()
-_sessions = set()
+# 无 TTL/无登出: 已知缺口, T6 覆盖限流与会话清理
+_sessions = OrderedDict()
 
 
 def wg_set_peer(pubkey, allowed_ips=None, keepalive=None, remove=False):
@@ -705,17 +707,20 @@ MAX_BODY = 64 * 1024
 
 class PanelHandler(BaseHTTPRequestHandler):
     server_version = "wgaio/1.0"
+    sys_version = ""
 
     def log_message(self, fmt, *args):
         pass  # 不落访问日志: 防止令牌/私钥随日志外泄
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
-        self.send_response(code)
+        self.send_response_only(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -728,7 +733,10 @@ class PanelHandler(BaseHTTPRequestHandler):
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             raise ApiError("只接受 application/json", 415)
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except (ValueError, TypeError):
+            raise ApiError("请求体不合法", 400)
         if n <= 0 or n > MAX_BODY:
             raise ApiError("请求体不合法", 400)
         try:
@@ -770,13 +778,17 @@ class PanelHandler(BaseHTTPRequestHandler):
             if parts[:2] == ["api", "login"] and method == "POST":
                 b = self._body()
                 if not verify_token(b.get("token"), self._cfg().get("panel_token_hash")):
+                    time.sleep(0.5)  # 迟滞暴力破解
                     self._json({"ok": False, "error": "令牌错误"}, 401)
                     return
                 sess = secrets.token_hex(32)
                 with _sessions_lock:
-                    _sessions.add(sess)
+                    _sessions[sess] = None
+                    while len(_sessions) > 1000:
+                        _sessions.popitem(last=False)
                 self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
                            extra={"Set-Cookie":
+                                  # 无 Secure: 面板是 VPN 内纯 HTTP(设计如此), 见设计文档 §8
                                   "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/" % sess})
                 return
             if parts[:1] == ["api"]:
@@ -789,7 +801,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         except ApiError as e:
             self._json({"ok": False, "error": str(e)}, e.code)
         except Exception as e:
-            self._json({"ok": False, "error": "内部错误: %s" % e}, 500)
+            self._json({"ok": False, "error": "内部错误"}, 500)
 
     def _api(self, method, parts, u):
         if parts == ["api", "status"] and method == "GET":

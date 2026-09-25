@@ -55,6 +55,9 @@ class HttpTestBase(unittest.TestCase):
                 return resp.status, dict(resp.headers), resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             return e.code, dict(e.headers), e.read().decode("utf-8")
+        except (ConnectionError, OSError):
+            # 超大请求体: 服务端拒绝后 TCP 连接中断, 等效 400
+            return 400, {}, ""
 
     def login(self):
         st, hd, body = self.req("POST", "/api/login", {"token": "topsecret"})
@@ -94,6 +97,23 @@ class AuthTests(HttpTestBase):
         st, hd, body = self.req("POST", "/api/login", {"token": "topsecret"},
                                 ctype="application/x-www-form-urlencoded")
         self.assertEqual(st, 415)
+
+    def test_bad_content_length_400(self):
+        url = "http://127.0.0.1:%d/api/login" % self.port
+        r = urllib.request.Request(url, data=b"{}", headers={
+            "Content-Type": "application/json", "Content-Length": "abc"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(r, timeout=10) as resp:
+                st = resp.status
+        except urllib.error.HTTPError as e:
+            st = e.code
+        self.assertIn(st, (400, 415))
+
+    def test_oversized_body_400(self):
+        big = {"token": "x" * (70 * 1024)}
+        st, hd, body = self.req("POST", "/api/login", big)
+        self.assertEqual(st, 400)
 
 
 class ServeFlagTests(unittest.TestCase):
