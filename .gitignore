@@ -23,5 +23,4 @@ __pycache__/
 # 运行时产物
 _stage/
 snapshots/
-config.json
 _t.service
