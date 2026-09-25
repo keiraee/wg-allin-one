@@ -55,18 +55,30 @@ class AddPeerTests(PeerBase):
 
     def test_gateway_route_updates_other_clients(self, m_gen, m_pub, m_set):
         core.add_peer("phone", None, None, None, "split", None, CFG)
-        core.add_peer("router", None, None, None, "split", "10.1.0.0/8", CFG)
+        core.add_peer("router", None, None, None, "split", "10.1.0.0/16", CFG)
         phone = core.show_conf("phone")
         router = core.show_conf("router")
-        self.assertIn("10.1.0.0/8", phone)
-        self.assertNotIn("10.1.0.0/8", router)
+        self.assertIn("10.1.0.0/16", phone)
+        self.assertNotIn("10.1.0.0/16", router)
         core.remove_peer("router", force=True, cfg=CFG)
-        self.assertNotIn("10.1.0.0/8", core.show_conf("phone"))
+        self.assertNotIn("10.1.0.0/16", core.show_conf("phone"))
 
     def test_add_rejects_dup_name(self, m_gen, m_pub, m_set):
         core.add_peer("phone", None, None, None, None, None, CFG)
         with self.assertRaises(core.ApiError):
             core.add_peer("phone", None, None, None, None, None, CFG)
+
+    def test_add_rejects_bad_dns(self, m_gen, m_pub, m_set):
+        with self.assertRaises(core.ApiError):
+            core.add_peer("phone", None, "not-a-dns", None, None, None, CFG)
+        self.assertFalse(core.client_paths("phone")[0].exists())
+
+    def test_add_drops_client_if_conf_write_fails(self, m_gen, m_pub, m_set):
+        with mock.patch("core.write_conf", side_effect=core.ApiError("写入失败")):
+            with self.assertRaises(core.ApiError):
+                core.add_peer("phone", None, None, None, None, None, CFG)
+        self.assertFalse(core.client_paths("phone")[0].exists())
+        m_set.assert_not_called()
 
 
 @mock.patch("core.wg_set_peer")

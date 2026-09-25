@@ -85,9 +85,11 @@ def validate_config(cfg):
     port = cfg.get("wg_port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ApiError("wg_port 必须是 1-65535 的整数")
-    ep = str(cfg.get("endpoint") or "")
-    if not ep or ":" not in ep:
-        raise ApiError("endpoint 必须是 IP或域名:端口")
+    _host, eport = parse_endpoint(cfg.get("endpoint"))
+    if eport != port:
+        raise ApiError("endpoint 端口必须和服务端口 %s 一致" % port)
+    if str(cfg.get("client_dns") or "").strip():
+        normalize_dns(cfg.get("client_dns"))
     if cfg.get("default_mode") not in ("split", "full"):
         raise ApiError("default_mode 只能是 split/full")
     for c in cfg.get("lan_cidrs") or []:
@@ -132,6 +134,47 @@ def ip_in_cidr(ip, cidr):
     return base <= n <= last
 
 
+def cidrs_overlap(a, b):
+    a0, a1 = cidr_bounds(a)
+    b0, b1 = cidr_bounds(b)
+    return a0 <= b1 and b0 <= a1
+
+
+def parse_endpoint(endpoint):
+    text = str(endpoint or "").strip()
+    host, sep, port_s = text.rpartition(":")
+    if not sep or not host or not port_s.isdigit():
+        raise ApiError("endpoint 必须是 IP或域名:端口")
+    port = int(port_s)
+    if not 1 <= port <= 65535:
+        raise ApiError("endpoint 端口必须是 1-65535")
+    if IPV4_RE.match(host):
+        try:
+            _ip_to_int(host)
+        except ValueError:
+            raise ApiError("endpoint 地址不合法: %s" % host)
+    elif ".." in host or not re.match(r"^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$", host):
+        raise ApiError("endpoint 必须是 IP或域名:端口")
+    return host, port
+
+
+def normalize_dns(dns):
+    text = ("" if dns is None else str(dns)).strip()
+    if not text:
+        return ""
+    parts = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part or not IPV4_RE.match(part):
+            raise ApiError("DNS 必须是 IPv4, 多个用逗号分隔: %s" % text)
+        try:
+            _ip_to_int(part)
+        except ValueError:
+            raise ApiError("DNS 不合法: %s" % part)
+        parts.append(part)
+    return ", ".join(parts)
+
+
 def normalize_name(name):
     name = (name or "").strip()
     if not NAME_RE.match(name) or name[:1] == "-":
@@ -150,7 +193,11 @@ def normalize_ip(ip, cfg, used, current=None):
         raise ApiError("配置缺少 vpn_cidr", 500)
     if not ip_in_cidr(ip, vpn_cidr):
         raise ApiError("IP 不在 VPN 网段 %s 内" % vpn_cidr)
-    base, _ = cidr_bounds(vpn_cidr)
+    base, last = cidr_bounds(vpn_cidr)
+    prefix = int(str(vpn_cidr).partition("/")[2] or 32)
+    # /31 及以上没有传统的网络地址和广播地址
+    if prefix <= 30 and (n == base or n == last):
+        raise ApiError("该地址是网段地址或广播地址, 不能分给设备")
     if n == base + 1:
         raise ApiError("该 IP 是服务器地址, 请换一个")
     used = set(used or ())
@@ -173,14 +220,16 @@ def normalize_routes(routes):
             raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
         try:
             _net, _sep, prefix = r.partition("/")
-            if int(prefix or "32") == 0:
+            plen = int(prefix or "32")
+            if plen == 0:
                 raise ApiError("网关路由不能是默认路由，全隧道请改流量模式")
-            cidr_bounds(r)  # 拒绝 /33 之类越界前缀
+            base, _last = cidr_bounds(r)  # 拒绝 /33 之类越界前缀
         except ApiError:
             raise
         except ValueError:
             raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
-        out.append(r)
+        # 主机位清零，否则 wg 会拒绝这条路由
+        out.append("%s/%d" % (int_to_ip(base), plen))
     return out
 
 
@@ -537,15 +586,20 @@ def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
                 "allowed_ips": ["%s/32" % ip] + extra_routes,
                 "keepalive": keepalive, "extra": []}
         peers.append(peer)
-        write_conf(iface_lines, peers)
-        wg_set_peer(pub, allowed_ips=", ".join(peer["allowed_ips"]), keepalive=keepalive)
-        use_dns = dns or cfg.get("client_dns") or "1.1.1.1"
+        use_dns = normalize_dns(dns) or normalize_dns(cfg.get("client_dns")) or "1.1.1.1"
         cfg_run = dict(cfg)
         cfg_run["client_dns"] = use_dns
         conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive, peers, name)
         meta = {"name": name, "pubkey": pub, "ip": ip, "mode": mode,
                 "dns": use_dns, "keepalive": keepalive, "routes": extra_routes}
+        # 先落私钥。写 wg0.conf 失败就删掉，避免对等端已写入但私钥丢失。
         save_client(name, conf_text, meta)
+        try:
+            write_conf(iface_lines, peers)
+        except Exception:
+            drop_client(name)
+            raise
+        wg_set_peer(pub, allowed_ips=", ".join(peer["allowed_ips"]), keepalive=keepalive)
         refresh_client_confs(cfg, peers)
         conf_text = client_paths(name)[0].read_text(encoding="utf-8")
         return meta, conf_text
@@ -618,7 +672,7 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                 raise ApiError("mode 只能是 split/full")
             meta["mode"] = mode
         if dns:
-            meta["dns"] = dns
+            meta["dns"] = normalize_dns(dns)
 
         write_conf(iface_lines, peers)
         wg_set_peer(peer["pubkey"], allowed_ips=", ".join(peer["allowed_ips"]),

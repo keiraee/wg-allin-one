@@ -131,10 +131,17 @@ cmd_install() {
   fi
 
   umask 077
-  local dest="$WGAIO_ROOT"
+  local dest="$WGAIO_ROOT" fresh=1
   [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
-  if [ "$dry" -eq 1 ]; then
-    install -d -m 700 "$dest"
+  install -d -m 700 "$dest"
+  # 再跑一次安装不能重写配置：登录密码会换掉，wg0.conf 却保持原样，隧道和面板对不上。
+  if [ -f "$dest/config.json" ]; then
+    if ! "$(find_python)" -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$dest/config.json"; then
+      die "已有 config.json 但不是合法 JSON, 请备份后删除再安装"
+    fi
+    fresh=0
+    log "检测到已有配置, 跳过问答(不更换登录密码, 不改网段和端口)"
+  elif [ "$dry" -eq 1 ]; then
     WGAIO_CONFIG_DIR="$dest" run_wizard
   else
     run_wizard
@@ -185,9 +192,14 @@ EOF
   log "====================================================="
   log " 重要: 请到云控制台安全组放行 UDP %s 端口!" "$wg_port"
   if [ -n "$tls_cn" ]; then
-    log " 面板: %s://%s:%s (令牌见上方)" "$scheme" "$tls_cn" "$panel_port"
+    log " 面板: %s://%s:%s" "$scheme" "$tls_cn" "$panel_port"
   else
-    log " 面板: %s://<VPN隧道地址>:%s (令牌见上方)" "$scheme" "$panel_port"
+    log " 面板: %s://<VPN隧道地址>:%s" "$scheme" "$panel_port"
+  fi
+  if [ "$fresh" -eq 0 ]; then
+    log " 登录密码沿用已有配置, 本次不再显示"
+  else
+    log " 登录密码见上方, 只显示过一次"
   fi
   log "====================================================="
 

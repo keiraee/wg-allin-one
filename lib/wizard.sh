@@ -20,8 +20,57 @@ ask() {  # ask "提示" "默认值" → stdout 答案
   else
     IFS= read -r ans || true
   fi
-  # 直接回车时 ans 为空，用方括号里的默认值
+  # 去掉首尾空白。直接回车时 ans 为空，用方括号里的默认值。
+  ans="${ans#"${ans%%[![:space:]]*}"}"
+  ans="${ans%"${ans##*[![:space:]]}"}"
   printf '%s' "${ans:-$def}"
+}
+
+udp_port_busy() {
+  local port="$1" hits
+  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
+  [ "${WGAIO_BUSY_UDP:-}" = "$port" ] && return 0
+  command -v ss >/dev/null 2>&1 || return 1
+  hits="$(ss -H -uln "sport = :$port" 2>/dev/null || true)"
+  [ -n "$hits" ]
+}
+
+tcp_port_busy() {
+  local port="$1" hits
+  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
+  [ "${WGAIO_BUSY_TCP:-}" = "$port" ] && return 0
+  command -v ss >/dev/null 2>&1 || return 1
+  hits="$(ss -H -tln "sport = :$port" 2>/dev/null || true)"
+  [ -n "$hits" ]
+}
+
+local_cidr_conflict() {  # 打印和本机地址重叠的那条前缀；没有重叠则空
+  local cidr="$1" locals py
+  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 0
+  if [ -n "${WGAIO_LOCAL_CIDRS:-}" ]; then
+    locals="$WGAIO_LOCAL_CIDRS"
+  else
+    command -v ip >/dev/null 2>&1 || return 0
+    locals="$(ip -4 -o addr show scope global 2>/dev/null | awk '{printf "%s%s", (NR>1?",":""), $4}')" || true
+  fi
+  [ -n "$locals" ] || return 0
+  py="$(find_python)"
+  "$py" - "$cidr" "$locals" <<'PY'
+import os, sys
+sys.path.insert(0, os.path.join(os.environ.get("WGAIO_ROOT", "."), "lib"))
+from core import cidrs_overlap
+chosen, locals_ = sys.argv[1], sys.argv[2]
+for item in locals_.split(","):
+    item = item.strip()
+    if not item:
+        continue
+    try:
+        if cidrs_overlap(chosen, item):
+            sys.stdout.write(item)
+            break
+    except ValueError:
+        continue
+PY
 }
 
 detect_ip() {
@@ -58,9 +107,23 @@ run_wizard() {
     3) vpn_cidr="172.31.88.0/24" ;;
     *) die "无效选择, 请输入 1、2 或 3" ;;
   esac
+  local conflict
+  conflict="$(local_cidr_conflict "$vpn_cidr" || true)"
+  if [ -n "$conflict" ]; then
+    die "网段 ${vpn_cidr} 和本机地址 ${conflict} 重叠, 请改选 1、2 或 3"
+  fi
 
   # 2. 服务端口
   wg_port="$(ask '服务端口 UDP(一般不用改)' '51820')"
+  case "$wg_port" in
+    ''|*[!0-9]*) die "端口必须是纯数字(1-65535)" ;;
+  esac
+  if [ "$wg_port" -lt 1 ] || [ "$wg_port" -gt 65535 ]; then
+    die "端口必须是纯数字(1-65535)"
+  fi
+  if udp_port_busy "$wg_port"; then
+    die "UDP 端口 ${wg_port} 已被占用, 请换一个服务端口"
+  fi
 
   # 3. 设备连接地址(自动检测公网IP, 多源回退)
   local detected def_endpoint
@@ -99,7 +162,12 @@ run_wizard() {
   if [ "$access_choice" = "2" ]; then
     local ip_part
     ip_part="${endpoint%%:*}"
-    domain="$(printf '%s' "$ip_part" | tr '.' '-').sslip.io"
+    # 只有纯 IPv4 才拼 sslip.io。域名本身就能打开面板，不能再改写成 xxx.sslip.io。
+    if printf '%s' "$ip_part" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+      domain="$(printf '%s' "$ip_part" | tr '.' '-').sslip.io"
+    else
+      domain="$ip_part"
+    fi
     tls_cn="$domain"
     log "面板将使用自动域名管理: $domain"
     printf 'HTTPS 加密(推荐; 浏览器会提示证书不受信, 点继续即可):\n' >&2
@@ -114,6 +182,15 @@ run_wizard() {
 
   # 7. 面板端口
   panel_port="$(ask '面板端口' '8888')"
+  case "$panel_port" in
+    ''|*[!0-9]*) die "端口必须是纯数字(1-65535)" ;;
+  esac
+  if [ "$panel_port" -lt 1 ] || [ "$panel_port" -gt 65535 ]; then
+    die "端口必须是纯数字(1-65535)"
+  fi
+  if tcp_port_busy "$panel_port"; then
+    die "面板端口 ${panel_port} 已被占用, 请换一个"
+  fi
 
   # 8. 流量模式(菜单选择)
   printf '新设备连上后怎么走流量:\n' >&2
@@ -167,10 +244,11 @@ cfg = {
     "panel_token_hash": thash,
     "default_mode": mode,
 }
+if tls_cn:
+    cfg["tls_cn"] = tls_cn
 if tls_cert:
     cfg["tls_cert"] = tls_cert
     cfg["tls_key"] = tls_key
-    cfg["tls_cn"] = tls_cn
 try:
     validate_config(cfg)
 except ApiError as e:

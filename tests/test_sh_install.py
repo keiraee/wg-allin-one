@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -27,7 +28,7 @@ class InstallTests(unittest.TestCase):
             root = make_sandbox(tmp.name)
         except OSError:
             self.skipTest("需要 symlink 权限")
-        all_env = {"WGAIO_SKIP_DETECT": "1"}
+        all_env = {"WGAIO_SKIP_DETECT": "1", "WGAIO_SKIP_NET_CHECK": "1"}
         if extra_env:
             all_env.update(extra_env)
         env_cmd = " ".join("%s=%s" % kv for kv in all_env.items()) + " "
@@ -49,6 +50,42 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((root / "_stage" / "panel" / "index.html").exists())
         self.assertIn("安全组", r.stdout)
         self.assertIn("UDP", r.stdout)
+
+    def test_install_keeps_existing_config(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        try:
+            root = make_sandbox(tmp.name)
+        except OSError:
+            self.skipTest("需要 symlink 权限")
+        stage = root / "_stage"
+        stage.mkdir()
+        payload = {
+            "vpn_cidr": "10.77.77.0/24",
+            "wg_port": 51821,
+            "endpoint": "203.0.113.8:51821",
+            "client_dns": "1.1.1.1",
+            "lan_cidrs": [],
+            "panel_bind": "10.77.77.1",
+            "panel_port": 9999,
+            "panel_token_hash": "keep-me",
+            "default_mode": "split",
+        }
+        (stage / "config.json").write_text(json.dumps(payload), encoding="utf-8")
+        r = subprocess.run(
+            ["bash", "-c",
+             "WGAIO_SKIP_DETECT=1 WGAIO_SKIP_NET_CHECK=1 "
+             "bash wgaio.sh install --dry-run </dev/null"],
+            cwd=str(root), capture_output=True, text=True, timeout=120,
+            encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads((stage / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["panel_token_hash"], "keep-me")
+        self.assertEqual(got["vpn_cidr"], "10.77.77.0/24")
+        self.assertEqual(got["wg_port"], 51821)
+        self.assertIn("跳过问答", r.stdout)
+        self.assertIn("不再显示", r.stdout)
+        self.assertNotIn("wgaio-", r.stdout)
 
     def test_install_dry_run_ok_without_root(self):
         r, root = self._run_install(extra_env={"WGAIO_FORCE_NONROOT": "1"})

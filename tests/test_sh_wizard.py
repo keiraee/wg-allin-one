@@ -27,7 +27,8 @@ class WizardTests(unittest.TestCase):
             root = make_sandbox(tmp.name)
         except OSError:
             self.skipTest("需要 symlink 权限")
-        script = ("WGAIO_SKIP_DETECT=1 bash wgaio.sh install --wizard-only <<'EOF'\n"
+        script = ("WGAIO_SKIP_DETECT=1 WGAIO_SKIP_NET_CHECK=1 "
+                  "bash wgaio.sh install --wizard-only <<'EOF'\n"
                   "%s\nEOF" % heredoc)
         r = subprocess.run(["bash", "-c", script], cwd=str(root),
                            capture_output=True, text=True, timeout=60,
@@ -64,7 +65,8 @@ class WizardTests(unittest.TestCase):
         except OSError:
             self.skipTest("需要 symlink 权限")
         script = (
-            "WGAIO_DETECT_IP=203.0.113.9 bash wgaio.sh install --wizard-only <<'EOF'\n"
+            "WGAIO_DETECT_IP=203.0.113.9 WGAIO_SKIP_NET_CHECK=1 "
+            "bash wgaio.sh install --wizard-only <<'EOF'\n"
             "3\n"
             "51821\n"
             "\n"
@@ -97,6 +99,56 @@ class WizardTests(unittest.TestCase):
         r, root = self._run_wizard("9\n")
         self.assertEqual(r.returncode, 1)
         self.assertIn("1、2 或 3", r.stderr)
+
+    def test_wizard_rejects_endpoint_port_mismatch(self):
+        r, root = self._run_wizard(
+            "\n" "51821\n" "203.0.113.9:51820\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("服务端口", r.stderr)
+
+    def test_wizard_rejects_bad_dns(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "nope\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("DNS", r.stderr)
+
+    def test_wizard_rejects_bad_ip_endpoint(self):
+        r, root = self._run_wizard("\n" "\n" "999.1.1.1:51820\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("endpoint", r.stderr)
+
+    def test_wizard_public_hostname_is_not_sslip(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "vpn.example.com:51820\n" "\n" "\n" "2\n" "2\n" "\n" "\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["tls_cn"], "vpn.example.com")
+        self.assertNotIn("sslip.io", r.stdout + r.stderr)
+
+    def _run_wizard_raw(self, heredoc, env):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        try:
+            root = make_sandbox(tmp.name)
+        except OSError:
+            self.skipTest("需要 symlink 权限")
+        script = ("%s WGAIO_SKIP_DETECT=1 bash wgaio.sh install --wizard-only <<'EOF'\n"
+                  "%s\nEOF" % (env, heredoc))
+        r = subprocess.run(["bash", "-c", script], cwd=str(root),
+                           capture_output=True, text=True, timeout=60,
+                           encoding="utf-8")
+        return r, root
+
+    def test_wizard_rejects_overlapping_local_cidr(self):
+        r, root = self._run_wizard_raw("\n", "WGAIO_LOCAL_CIDRS=10.66.66.5/24")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("重叠", r.stderr)
+
+    def test_wizard_rejects_busy_udp(self):
+        r, root = self._run_wizard_raw(
+            "\n\n", "WGAIO_LOCAL_CIDRS=192.168.9.0/24 WGAIO_BUSY_UDP=51820")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("已被占用", r.stderr)
 
     def test_wizard_rejects_bad_endpoint(self):
         r, root = self._run_wizard(
@@ -162,7 +214,8 @@ class WizardTests(unittest.TestCase):
         except OSError:
             self.skipTest("需要 symlink 权限")
         r = subprocess.run(["bash", "-c",
-                            "WGAIO_SKIP_DETECT=1 bash wgaio.sh install --wizard-only </dev/null"],
+                            "WGAIO_SKIP_DETECT=1 WGAIO_SKIP_NET_CHECK=1 "
+                            "bash wgaio.sh install --wizard-only </dev/null"],
                            cwd=str(root), capture_output=True, text=True,
                            timeout=60, encoding="utf-8")
         self.assertEqual(r.returncode, 1)

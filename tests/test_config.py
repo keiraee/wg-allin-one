@@ -87,6 +87,21 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(core.ApiError):
             core.load_config(p)
 
+    def test_reject_endpoint_port_mismatch(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:1", "wg_port": 51820})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
+    def test_accept_hostname_endpoint(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "vpn.example.com:51820"})
+        cfg = core.load_config(p)
+        self.assertEqual(cfg["endpoint"], "vpn.example.com:51820")
+
+    def test_reject_bad_client_dns(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "client_dns": "nope"})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
     def test_reject_bool_panel_port(self):
         p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "panel_port": True})
         with self.assertRaises(core.ApiError):
