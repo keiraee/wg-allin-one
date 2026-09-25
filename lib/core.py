@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """wg-allin-one 核心：WireGuard 设备管理（CLI 后端）。"""
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -661,3 +663,16 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def hash_token(plain):
+    return hashlib.sha256((plain or "").encode("utf-8")).hexdigest()
+
+
+def verify_token(plain, token_hash):
+    if not token_hash:
+        return False
+    try:
+        return hmac.compare_digest(hash_token(plain), str(token_hash))
+    except Exception:
+        return False
