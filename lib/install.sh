@@ -207,5 +207,9 @@ EOF
   local gw_ip
   gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$(read_cfg vpn_cidr)")"
   log "WireGuard 中枢: wg0 (网关 ${gw_ip}) — 设备通过面板添加"
+  # shellcheck source=lib/upgrade.sh
+  . "$ROOT/lib/upgrade.sh"
+  write_track "$dest"
+  log "之后直接执行 wgaio 进入管理菜单"
   printf '\n'
 }

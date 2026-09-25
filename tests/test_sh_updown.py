@@ -94,6 +94,35 @@ class UpgradeApplyTests(unittest.TestCase):
         self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
 
 
+class TrackTests(unittest.TestCase):
+    def test_same_commit_and_hash_label(self):
+        script = """
+set -Eeuo pipefail
+ROOT="$(pwd)"
+. lib/core.sh
+. lib/upgrade.sh
+same_commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+if same_commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; then
+  echo 'unexpected same' >&2
+  exit 1
+fi
+hash_label 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+echo
+"""
+        r = run_bash(script)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("0123456789ab", r.stdout)
+        self.assertIn("aaaaaaaaaaaa", r.stdout)
+
+    def test_menu_lists_tracks_and_exits(self):
+        r = run_bash("ROOT=\"$(pwd)\"; . lib/core.sh; . lib/menu.sh; cmd_menu <<'EOF'\n99\nEOF\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("管理菜单", out)
+        self.assertIn("抢先试用 main", out)
+        self.assertIn("升级稳定版", out)
+
+
 class UninstallTests(unittest.TestCase):
     def test_uninstall_dry_run_lists_targets(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

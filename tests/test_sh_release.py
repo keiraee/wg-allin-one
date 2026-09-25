@@ -11,7 +11,7 @@ class ReleaseTests(unittest.TestCase):
         for name in ("wgaio.sh", "lib/core.py", "lib/core.sh", "lib/wizard.sh",
                      "lib/install.sh", "lib/user.sh", "lib/panel.sh",
                      "lib/upgrade.sh", "lib/uninstall.sh", "lib/status.sh",
-                     "lib/logs.sh", "bin/wgaio",
+                     "lib/logs.sh", "lib/menu.sh", "bin/wgaio",
                      "panel/index.html", "panel/style.css", "panel/app.js"):
             self.assertIn(name, sums)
 

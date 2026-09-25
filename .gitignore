@@ -24,3 +24,5 @@ __pycache__/
 _stage/
 snapshots/
 _t.service
+.wgaio-track
+.update-check.json

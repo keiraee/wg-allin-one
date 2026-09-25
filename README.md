@@ -18,16 +18,29 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 
 安装结束会提示放行 UDP 端口——必须到云控制台安全组放行, 否则设备连不上。
 
+## 管理菜单
+
+装好后在终端里直接执行 `wgaio`（不要带子命令）进入菜单，里面可以升级、管设备、开关面板、看日志、回滚和卸载。`wgaio --help` 仍是命令说明。
+
+## 升级轨道
+
+升级只覆盖程序文件，不动 `config.json` 和 `clients/`。每次先向 GitHub 解析当前提交，再按该提交下载并校验 `SHA256SUMS`。日志会打出上次哈希和本次哈希；提交没变，或者哈希没变，就跳过覆盖。
+
+- **稳定版**：菜单里选「升级稳定版」，或 `WGAIO_REF=latest wgaio upgrade`。跟 GitHub Release 的最新 tag。
+- **抢先试用**：菜单里选「抢先试用 main」，或 `WGAIO_REF=main wgaio upgrade`。本机会记住 `main`，之后普通 `wgaio upgrade` 继续跟 `main`，不会被正式版带走。
+- 用仓库里的 `main` 安装脚本装好的机器，轨道默认就是 `main`。
+
 ## 子命令
 
 ```
+wgaio                  管理菜单
 wgaio install
 wgaio version
 wgaio user add|del|edit|list|show
 wgaio panel start|stop|restart|status|install
 wgaio status
 wgaio logs
-wgaio upgrade  校验下载后覆盖程序文件(不动 config.json 与 clients/)
+wgaio upgrade
 wgaio rollback
 wgaio uninstall
 ```
@@ -54,6 +67,6 @@ python -m unittest discover tests -v   # 需要 bash 与 sha256sum
 
 改动发版文件(wgaio.sh/bin/lib/panel)后需重新生成 SHA256SUMS:
 ```bash
-python -c "from pathlib import Path; ns='wgaio.sh bin/wgaio lib/core.sh lib/core.py lib/wizard.sh lib/install.sh lib/user.sh lib/panel.sh lib/upgrade.sh lib/uninstall.sh lib/status.sh lib/logs.sh panel/index.html panel/style.css panel/app.js'.split(); [Path(n).write_bytes(Path(n).read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')) for n in ns]"
+python -c "from pathlib import Path; ns='wgaio.sh bin/wgaio lib/core.sh lib/core.py lib/wizard.sh lib/install.sh lib/user.sh lib/panel.sh lib/upgrade.sh lib/uninstall.sh lib/status.sh lib/logs.sh lib/menu.sh panel/index.html panel/style.css panel/app.js'.split(); [Path(n).write_bytes(Path(n).read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')) for n in ns]"
 sha256sum wgaio.sh bin/wgaio lib/*.sh lib/core.py panel/index.html panel/style.css panel/app.js > SHA256SUMS
 ```

@@ -12,7 +12,7 @@ def make_sandbox(tmp):
     root = Path(tmp)
     (root / "lib").mkdir()
     (root / "panel").mkdir()
-    for f in ("core.sh", "core.py", "wizard.sh", "install.sh"):
+    for f in ("core.sh", "core.py", "wizard.sh", "install.sh", "upgrade.sh"):
         os.symlink(ROOT / "lib" / f, root / "lib" / f)
     for f in ("index.html", "style.css", "app.js"):
         os.symlink(ROOT / "panel" / f, root / "panel" / f)
