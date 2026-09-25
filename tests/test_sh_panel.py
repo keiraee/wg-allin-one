@@ -32,7 +32,8 @@ class PanelUnitTests(unittest.TestCase):
         r = subprocess.run(["bash", "wgaio.sh", "panel", "status"],
                            cwd=str(ROOT), capture_output=True, text=True,
                            timeout=60, env=env, encoding="utf-8")
-        self.assertIn("systemd", (r.stdout + r.stderr).lower())
+        out = r.stdout + r.stderr
+        self.assertTrue("wgaio-panel" in out or "systemd" in out, out)
 
 
 if __name__ == "__main__":

@@ -33,19 +33,31 @@ class ConcurrencyTests(unittest.TestCase):
 
         def worker(i):
             try:
-                with mock.patch("core.gen_keypair",
-                                return_value=("PRIV%d" % i, "PUB%d" % i)):
-                    meta, _ = core.add_peer("dev%d" % i, None, None, None,
-                                            None, None, CFG)
+                meta, _ = core.add_peer("dev%d" % i, None, None, None,
+                                        None, None, CFG)
                 results.append(meta["ip"])
             except Exception as e:  # noqa: BLE001 - 测试收集并发错误
                 errors.append(e)
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        import itertools
+        counter = itertools.count(1)
+        lock = threading.Lock()
+
+        def fake_keypair():
+            with lock:
+                i = next(counter)
+            return ("PRIV%d" % i, "PUB%d" % i)
+
+        orig_gen = core.gen_keypair
+        core.gen_keypair = fake_keypair
+        try:
+            threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            core.gen_keypair = orig_gen
 
         self.assertEqual(errors, [])
         self.assertEqual(len(set(results)), 8, "并发添加分配到了重复 IP: %s" % results)

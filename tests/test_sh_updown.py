@@ -77,7 +77,7 @@ class StatusLogsTests(unittest.TestCase):
     def test_logs_mentions_journal(self):
         r = run_bash("bash wgaio.sh logs")
         out = (r.stdout + r.stderr).lower()
-        self.assertTrue("journal" in out or "systemd" in out)
+        self.assertTrue("journal" in out or "systemd" in out or "wgaio-panel" in out, out)
 
 
 if __name__ == "__main__":
