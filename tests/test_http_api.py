@@ -62,6 +62,8 @@ class ApiTests(ApiTestBase):
         self.assertEqual(st, 200, body)
         data = json.loads(body)
         self.assertIn("PrivateKey = PRIV", data["conf"])
+        self.assertEqual(data["peer"]["name"], "phone")
+        self.assertIn("ip", data["peer"])
 
         st, hd, body = self.req("GET", "/api/status")
         names = [p["name"] for p in json.loads(body)["peers"]]
@@ -83,6 +85,7 @@ class ApiTests(ApiTestBase):
         self.assertEqual(st, 409)
         st, hd, body = self.req("DELETE", "/api/peers/router?force=1")
         self.assertEqual(st, 200)
+        self.assertEqual(json.loads(body)["peer"]["name"], "router")
 
     def test_patch_rename_and_ip(self, m_gen, m_pub, m_set):
         self.req("POST", "/api/peers", {"name": "phone"})
@@ -96,6 +99,12 @@ class ApiTests(ApiTestBase):
     def test_conf_404_unknown(self, m_gen, m_pub, m_set):
         st, hd, body = self.req("GET", "/api/peers/ghost/conf")
         self.assertEqual(st, 404)
+
+    def test_add_duplicate_400(self, m_gen, m_pub, m_set):
+        self.req("POST", "/api/peers", {"name": "dup"})
+        st, hd, body = self.req("POST", "/api/peers", {"name": "dup"})
+        self.assertEqual(st, 400)
+        self.assertIn("已存在", json.loads(body).get("error", ""))
 
     def test_bad_json_400(self, m_gen, m_pub, m_set):
         st, hd, body = self.req("POST", "/api/peers", "not-dict")

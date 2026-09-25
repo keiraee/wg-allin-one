@@ -803,6 +803,12 @@ class PanelHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"ok": False, "error": "内部错误"}, 500)
 
+    # API 契约(T5 前端消费):
+    # GET    /api/status                 -> {ok, iface, peers[], next_ip, ...}
+    # POST   /api/peers                  <- {name, ip?, dns?, keepalive?, mode?, routes?} -> {ok, peer, conf}
+    # PATCH  /api/peers/<name>           <- {new_name?, ip?, dns?, keepalive?, mode?, routes?} -> {ok, peer}
+    # DELETE /api/peers/<name>[?force=1] -> {ok, peer{name}, removed}   (网关无 force 时 409)
+    # GET    /api/peers/<name>/conf      -> text/plain attachment
     def _api(self, method, parts, u):
         cfg = self._cfg()
         if parts == ["api", "status"] and method == "GET":
@@ -817,7 +823,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "DELETE":
             force = parse_qs(u.query).get("force", ["0"])[0] == "1"
-            self._json({"ok": True, **remove_peer(parts[2], force=force)})
+            self._json({"ok": True, "peer": {"name": parts[2]},
+                        **remove_peer(parts[2], force=force)})
             return
         if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "PATCH":
             b = self._body()
@@ -829,9 +836,10 @@ class PanelHandler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "peers"] and parts[3] == "conf" \
                 and method == "GET":
             text = show_conf(parts[2])
+            fname = parts[2].replace('"', "").replace("\r", "").replace("\n", "")
             self._send(200, text, "text/plain; charset=utf-8",
                        {"Content-Disposition":
-                        'attachment; filename="%s.conf"' % parts[2]})
+                        'attachment; filename="%s.conf"' % fname})
             return
         raise ApiError("接口不存在", 404)
 
