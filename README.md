@@ -46,5 +46,8 @@ python -m unittest discover tests -v   # 需要 bash 与 sha256sum
 
 改动发版文件(wgaio.sh/bin/lib/panel)后需重新生成 SHA256SUMS:
 ```bash
+python -c "from pathlib import Path; [Path(n).write_bytes(Path(n).read_bytes().replace(b'
+', b'
+')) for n in 'wgaio.sh bin/wgaio lib/core.py lib/wizard.sh lib/install.sh lib/user.sh lib/panel.sh lib/upgrade.sh lib/uninstall.sh lib/status.sh lib/logs.sh panel/index.html panel/style.css panel/app.js'.split()]"
 sha256sum wgaio.sh bin/wgaio lib/*.sh lib/core.py panel/index.html panel/style.css panel/app.js > SHA256SUMS
 ```
