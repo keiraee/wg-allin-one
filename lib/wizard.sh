@@ -8,13 +8,9 @@ ask() {  # ask "提示" "默认值" → stdout 答案
   if [ -n "$def" ]; then printf '%s [%s]: ' "$prompt" "$def" >&2
   else printf '%s: ' "$prompt" >&2; fi
   if [ -t 0 ]; then
-    # readline 吃掉退格和方向键。否则这些键会原样变成 ^H，删不掉已输入的字。
+    # readline 吃掉退格和方向键。默认值只写在方括号里，不填进输入行。
     rc=0
-    if [ -n "$def" ]; then
-      IFS= read -e -r -i "$def" ans || rc=$?
-    else
-      IFS= read -e -r ans || rc=$?
-    fi
+    IFS= read -e -r ans || rc=$?
     if [ "$rc" -gt 128 ] || [ "$rc" -eq 2 ]; then
       stty erase '^H' -echoctl 2>/dev/null || true
       IFS= read -r ans || true
@@ -24,7 +20,7 @@ ask() {  # ask "提示" "默认值" → stdout 答案
   else
     IFS= read -r ans || true
   fi
-  # 预填默认值时，用户若没改，答案就是默认值本身
+  # 直接回车时 ans 为空，用方括号里的默认值
   printf '%s' "${ans:-$def}"
 }
 
