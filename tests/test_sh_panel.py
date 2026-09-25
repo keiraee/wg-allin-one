@@ -25,6 +25,8 @@ class PanelUnitTests(unittest.TestCase):
         self.assertIn("StandardOutput=journal", unit)   # 补上 spec 审查点出的漏断言
         self.assertIn("StandardError=journal", unit)
         self.assertIn("WorkingDirectory=", unit)
+        wd = [ln.split("=", 1)[1] for ln in unit.splitlines() if ln.startswith("WorkingDirectory=")][0]
+        self.assertIn("Environment=WGAIO_BASE=%s" % wd, unit)
         self.assertIn("After=network.target wg-quick@wg0.service", unit)
         self.assertIn("WantedBy=multi-user.target", unit)
 

@@ -16,6 +16,7 @@ After=network.target wg-quick@wg0.service
 [Service]
 ExecStart=$(find_python) $root/lib/core.py --serve
 WorkingDirectory=$root
+Environment=WGAIO_BASE=$root
 Restart=always
 RestartSec=5
 StandardOutput=journal

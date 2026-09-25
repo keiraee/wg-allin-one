@@ -21,6 +21,13 @@ class ConfigTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_resolve_base_follows_install_dir(self):
+        self.assertEqual(core.resolve_base({}), Path("/opt/wgaio"))
+        self.assertEqual(core.resolve_base({"WGAIO_ROOT": "/opt/custom"}), Path("/opt/custom"))
+        self.assertEqual(
+            core.resolve_base({"WGAIO_BASE": "/sandbox", "WGAIO_ROOT": "/opt/custom"}),
+            Path("/sandbox"))
+
     def test_load_merges_defaults(self):
         p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820"})
         cfg = core.load_config(p)

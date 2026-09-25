@@ -18,7 +18,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
-BASE = Path(os.environ.get("WGAIO_BASE", "/opt/wgaio"))
+def resolve_base(env=None):
+    """安装根目录。显式 WGAIO_BASE 优先，否则跟入口的 WGAIO_ROOT，最后才是 /opt/wgaio。"""
+    env = os.environ if env is None else env
+    raw = env.get("WGAIO_BASE") or env.get("WGAIO_ROOT") or "/opt/wgaio"
+    return Path(raw)
+
+
+BASE = resolve_base()
 CLIENTS = BASE / "clients"
 WG_CONF = Path(os.environ.get("WGAIO_WG_CONF", "/etc/wireguard/wg0.conf"))
 CONFIG_PATH = BASE / "config.json"

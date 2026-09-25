@@ -28,5 +28,9 @@ core_py() {
 
 run_core() {
   local py; py="$(find_python)"
+  # 核心读 WGAIO_BASE。已显式指定时保留(测试沙箱)，否则跟安装目录走。
+  if [ -z "${WGAIO_BASE:-}" ]; then
+    export WGAIO_BASE="${WGAIO_ROOT:-$(wgaio_root)}"
+  fi
   "$py" "$(core_py)" "$@"
 }
