@@ -16,7 +16,7 @@ def make_sandbox(root):
     """Create a sandbox with symlinks to lib/ and wgaio.sh, plus a runner
     script that provisions config and exports WGAIO_BASE/WGAIO_WG_CONF."""
     root = Path(root)
-    (root / "lib").mkdir()
+    (root / "lib").mkdir(exist_ok=True)
     for f in ("core.sh", "core.py", "user.sh"):
         src = ROOT / "lib" / f
         if src.exists():
@@ -54,7 +54,7 @@ class UserWrapperTests(unittest.TestCase):
         self.sandbox = ROOT / "_test_user_sandbox"
         if self.sandbox.exists():
             shutil.rmtree(self.sandbox, ignore_errors=True)
-        self.sandbox.mkdir()
+        self.sandbox.mkdir(exist_ok=True)
         make_sandbox(self.sandbox)
 
     def tearDown(self):
