@@ -5,7 +5,7 @@
 ## 快速开始
 
 ```bash
-curl -fsSL <仓库地址>/wgaio.sh -o wgaio.sh && sudo bash wgaio.sh install
+curl -fsSL https://github.com/keiraee/wg-allin-one/wgaio.sh -o wgaio.sh && sudo bash wgaio.sh install
 ```
 
 按中文向导回车即可; 装完把显示的访问令牌保存好——只显示一次。
