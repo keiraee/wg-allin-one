@@ -11,11 +11,11 @@ write_panel_unit() {  # 输出到 $WGAIO_UNIT_OUT 或 /etc/systemd/system/
   cat > "$dest" <<EOF
 [Unit]
 Description=wgaio WireGuard panel
-After=network.target
+After=network.target wg-quick@wg0.service
 
 [Service]
-ExecStart=$(find_python) $root/lib/core.py --serve
-WorkingDirectory=$root
+ExecStart=$(find_python) "$root/lib/core.py" --serve
+WorkingDirectory="$root"
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -28,6 +28,7 @@ EOF
 
 install_panel_unit() {
   write_panel_unit "${1:-$WGAIO_ROOT}"
+  # 测试模式: WGAIO_UNIT_OUT 已指定输出路径时跳过 systemctl
   [ -n "${WGAIO_UNIT_OUT:-}" ] && return 0
   systemctl daemon-reload
   systemctl enable --now wgaio-panel

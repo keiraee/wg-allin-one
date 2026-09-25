@@ -23,6 +23,8 @@ class PanelUnitTests(unittest.TestCase):
         self.assertIn("Restart=always", unit)
         self.assertIn("StandardOutput=journal", unit)   # 补上 spec 审查点出的漏断言
         self.assertIn("StandardError=journal", unit)
+        self.assertIn("WorkingDirectory=", unit)
+        self.assertIn("After=network.target wg-quick@wg0.service", unit)
         self.assertIn("WantedBy=multi-user.target", unit)
 
     def test_panel_status_without_systemd(self):
