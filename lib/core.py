@@ -804,8 +804,34 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "内部错误"}, 500)
 
     def _api(self, method, parts, u):
+        cfg = self._cfg()
         if parts == ["api", "status"] and method == "GET":
-            self._json(full_status(self._cfg()))
+            self._json(full_status(cfg))
+            return
+        if parts == ["api", "peers"] and method == "POST":
+            b = self._body()
+            meta, conf_text = add_peer(b.get("name"), b.get("ip"), b.get("dns"),
+                                       b.get("keepalive"), b.get("mode"),
+                                       b.get("routes"), cfg)
+            self._json({"ok": True, "peer": meta, "conf": conf_text})
+            return
+        if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "DELETE":
+            force = parse_qs(u.query).get("force", ["0"])[0] == "1"
+            self._json({"ok": True, **remove_peer(parts[2], force=force)})
+            return
+        if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "PATCH":
+            b = self._body()
+            meta = update_peer(parts[2], new_name=b.get("new_name"), ip=b.get("ip"),
+                               dns=b.get("dns"), keepalive=b.get("keepalive"),
+                               mode=b.get("mode"), routes=b.get("routes"), cfg=cfg)
+            self._json({"ok": True, "peer": meta})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "peers"] and parts[3] == "conf" \
+                and method == "GET":
+            text = show_conf(parts[2])
+            self._send(200, text, "text/plain; charset=utf-8",
+                       {"Content-Disposition":
+                        'attachment; filename="%s.conf"' % parts[2]})
             return
         raise ApiError("接口不存在", 404)
 
