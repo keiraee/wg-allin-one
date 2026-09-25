@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 import tempfile
@@ -112,6 +113,17 @@ class AuthTests(HttpTestBase):
         self.assertIn("Max-Age=0", hd.get("Set-Cookie", ""))
         st, hd, body = self.req("GET", "/api/status", cookie=cookie)
         self.assertEqual(st, 401)
+
+    def test_unexpected_error_logged_not_returned(self):
+        cookie = self.login()
+        buf = io.StringIO()
+        with mock.patch("core.full_status", side_effect=RuntimeError("boom-secret")):
+            with mock.patch("sys.stderr", buf):
+                st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 500)
+        self.assertIn("内部错误", body)
+        self.assertNotIn("boom-secret", body)
+        self.assertIn("boom-secret", buf.getvalue())
 
     def test_login_rereads_token_hash(self):
         path = Path(self.tmp.name) / "config.json"

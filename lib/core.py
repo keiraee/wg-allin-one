@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from collections import OrderedDict
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -900,7 +901,9 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "页面不存在"}, 404)
         except ApiError as e:
             self._json({"ok": False, "error": str(e)}, e.code)
-        except Exception as e:
+        except Exception:
+            print("[wgaio] 面板内部错误", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             self._json({"ok": False, "error": "内部错误"}, 500)
 
     # API 契约(T5 前端消费):
