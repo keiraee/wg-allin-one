@@ -369,8 +369,12 @@ def wg_set_peer(pubkey, allowed_ips=None, keepalive=None, remove=False):
     try:
         r = subprocess.run(["ip", "link", "show", WG_IFACE], capture_output=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
+        print("[wgaio] 警告: 探测 %s 失败, 跳过内核热更新(配置已落盘, 重启 wg 后生效)"
+              % WG_IFACE, file=sys.stderr)
         return
     if r.returncode != 0:
+        print("[wgaio] 警告: %s 未启动, 跳过内核热更新(配置已落盘)" % WG_IFACE,
+              file=sys.stderr)
         return
     if remove:
         run_wg(["set", WG_IFACE, "peer", pubkey, "remove"])
