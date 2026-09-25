@@ -50,7 +50,8 @@ fetch_tree() {  # fetch_tree <目录>
   curl -fsSL "https://github.com/keiraee/wg-allin-one/archive/refs/heads/${ref}.tar.gz" -o "$tmp/src.tgz" \
     || { rm -rf "$tmp"; die "套件下载失败"; }
   mkdir -p "$dest"
-  tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 \
+  tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 --warning=no-timestamp \
+    || tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 \
     || { rm -rf "$tmp"; die "套件解包失败"; }
   rm -rf "$tmp"
 }

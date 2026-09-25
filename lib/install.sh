@@ -30,6 +30,7 @@ render_wg0_conf() {  # render_wg0_conf <private_key> <vpn_cidr> <wg_port> → st
   # 不设 Table=off：中枢要让 wg-quick 安装对等端网段路由。
   # 默认路由只出现在客户端配置里，服务端拒绝 0.0.0.0/0，避免 SSH 被吸走。
   cat <<EOF
+# wgaio-managed
 [Interface]
 Address = ${gw_ip}/${prefix}
 ListenPort = ${wg_port}
@@ -190,11 +191,11 @@ EOF
 
   printf '\n'
   log "====================================================="
-  log " 重要: 请到云控制台安全组放行 UDP %s 端口!" "$wg_port"
+  log " 重要: 请到云控制台安全组放行 UDP ${wg_port} 端口!"
   if [ -n "$tls_cn" ]; then
-    log " 面板: %s://%s:%s" "$scheme" "$tls_cn" "$panel_port"
+    log " 面板: ${scheme}://${tls_cn}:${panel_port}"
   else
-    log " 面板: %s://<VPN隧道地址>:%s" "$scheme" "$panel_port"
+    log " 面板: ${scheme}://<VPN隧道地址>:${panel_port}"
   fi
   if [ "$fresh" -eq 0 ]; then
     log " 登录密码沿用已有配置, 本次不再显示"

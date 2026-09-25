@@ -12,7 +12,7 @@ cmd_uninstall() {
     esac
   done
   log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json, certs/, snapshots/, /etc/sysctl.d/99-wgaio.conf$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
-  log "程序文件(lib/ panel/ wgaio.sh)和 /etc/wireguard 保留"
+  log "程序文件(lib/ panel/ wgaio.sh)保留。本工具生成的 wg0 会停掉并删除, 别人原有的 WireGuard 不动"
   log "用法提示: 可选参数 --keep-clients | --dry-run"
   [ "$dry" -eq 1 ] && { log "(dry-run, 未执行任何删除)"; return 0; }
   if command -v systemctl >/dev/null 2>&1; then
@@ -27,5 +27,13 @@ cmd_uninstall() {
   rm -rf "${WGAIO_ROOT}/certs" "${WGAIO_ROOT}/snapshots"
   [ "$keep" -eq 0 ] && rm -rf "${WGAIO_ROOT}/clients"
   rm -f "${WGAIO_ROOT}/config.json"
-  log "卸载完成(wireguard 配置 /etc/wireguard/ 未动)"
+  local wgconf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
+  if [ -f "$wgconf" ] && grep -q 'wgaio-managed' "$wgconf"; then
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl disable --now wg-quick@wg0 2>/dev/null || true
+    fi
+    rm -f "$wgconf"
+    log "已停止并删除本工具生成的 $wgconf"
+  fi
+  log "卸载完成"
 }

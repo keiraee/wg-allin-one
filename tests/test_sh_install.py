@@ -140,6 +140,7 @@ class InstallTests(unittest.TestCase):
                            capture_output=True, text=True, timeout=60,
                            cwd=str(ROOT), encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("# wgaio-managed", r.stdout)
         self.assertIn("Address = 10.66.66.1/24", r.stdout)
         self.assertIn("ListenPort = 51820", r.stdout)
         self.assertIn("PrivateKey = TESTKEY", r.stdout)

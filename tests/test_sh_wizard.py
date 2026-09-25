@@ -149,6 +149,7 @@ class WizardTests(unittest.TestCase):
             "\n\n", "WGAIO_LOCAL_CIDRS=192.168.9.0/24 WGAIO_BUSY_UDP=51820")
         self.assertEqual(r.returncode, 1)
         self.assertIn("已被占用", r.stderr)
+        self.assertIn("wg-quick@wg0", r.stderr)
 
     def test_wizard_rejects_bad_endpoint(self):
         r, root = self._run_wizard(

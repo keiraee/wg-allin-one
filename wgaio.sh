@@ -33,7 +33,9 @@ if [ "$need_bootstrap" = "1" ]; then
   REF="${WGAIO_REF:-main}"
   curl -fsSL "https://github.com/keiraee/wg-allin-one/archive/refs/heads/${REF}.tar.gz" -o "$DEST/.wgaio.tgz" \
     || { printf '[wgaio] 错误: 套件下载失败\n' >&2; exit 1; }
-  tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1
+  tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1 --warning=no-timestamp \
+    || tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1 \
+    || { printf '[wgaio] 错误: 套件解包失败\n' >&2; exit 1; }
   rm -f "$DEST/.wgaio.tgz"
   printf '[wgaio] 套件就绪, 继续安装...\n'
   exec bash "$DEST/wgaio.sh" "$@"

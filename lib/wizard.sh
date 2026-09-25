@@ -122,7 +122,7 @@ run_wizard() {
     die "端口必须是纯数字(1-65535)"
   fi
   if udp_port_busy "$wg_port"; then
-    die "UDP 端口 ${wg_port} 已被占用, 请换一个服务端口"
+    die "UDP 端口 ${wg_port} 已被占用, 多半是上次安装留下的 WireGuard。请先执行: systemctl disable --now wg-quick@wg0 && rm -f /etc/wireguard/wg0.conf  然后重新安装。若这个端口是别的程序占用的, 请换一个服务端口"
   fi
 
   # 3. 设备连接地址(自动检测公网IP, 多源回退)

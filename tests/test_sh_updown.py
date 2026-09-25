@@ -109,6 +109,7 @@ class UninstallTests(unittest.TestCase):
         self.assertIn("config.json", out)
         self.assertIn("certs/", out)
         self.assertIn("99-wgaio.conf", out)
+        self.assertIn("wg0", out)
         self.assertIn("--keep-clients", out)
 
 
