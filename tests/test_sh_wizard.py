@@ -50,6 +50,8 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(cfg["vpn_cidr"], "10.66.66.0/24")
         self.assertEqual(cfg["wg_port"], 51820)
         self.assertEqual(cfg["panel_bind"], "10.66.66.1")
+        self.assertIn("10.77.77.0/24", r.stderr)
+        self.assertIn("172.31.88.0/24", r.stderr)
         self.assertEqual(len(cfg["panel_token_hash"]), 64)
         self.assertIn("登录密码", r.stdout)
         self.assertIn("请立即保存", r.stdout)
@@ -63,7 +65,7 @@ class WizardTests(unittest.TestCase):
             self.skipTest("需要 symlink 权限")
         script = (
             "WGAIO_DETECT_IP=203.0.113.9 bash wgaio.sh install --wizard-only <<'EOF'\n"
-            "192.168.1.128/25\n"
+            "3\n"
             "51821\n"
             "\n"
             "\n"
@@ -80,7 +82,21 @@ class WizardTests(unittest.TestCase):
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["wg_port"], 51821)
         self.assertEqual(cfg["endpoint"], "203.0.113.9:51821")
-        self.assertEqual(cfg["panel_bind"], "192.168.1.129")
+        self.assertEqual(cfg["vpn_cidr"], "172.31.88.0/24")
+        self.assertEqual(cfg["panel_bind"], "172.31.88.1")
+
+    def test_wizard_cidr_choice_two(self):
+        r, root = self._run_wizard(
+            "2\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["vpn_cidr"], "10.77.77.0/24")
+        self.assertEqual(cfg["panel_bind"], "10.77.77.1")
+
+    def test_wizard_rejects_bad_cidr_choice(self):
+        r, root = self._run_wizard("9\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("1、2 或 3", r.stderr)
 
     def test_wizard_rejects_bad_endpoint(self):
         r, root = self._run_wizard(

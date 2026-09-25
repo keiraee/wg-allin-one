@@ -4,10 +4,27 @@
 . "$ROOT/lib/core.sh"
 
 ask() {  # ask "提示" "默认值" → stdout 答案
-  local prompt="$1" def="${2:-}" ans
+  local prompt="$1" def="${2:-}" ans rc
   if [ -n "$def" ]; then printf '%s [%s]: ' "$prompt" "$def" >&2
   else printf '%s: ' "$prompt" >&2; fi
-  IFS= read -r ans || true
+  if [ -t 0 ]; then
+    # readline 吃掉退格和方向键。否则这些键会原样变成 ^H，删不掉已输入的字。
+    rc=0
+    if [ -n "$def" ]; then
+      IFS= read -e -r -i "$def" ans || rc=$?
+    else
+      IFS= read -e -r ans || rc=$?
+    fi
+    if [ "$rc" -gt 128 ] || [ "$rc" -eq 2 ]; then
+      stty erase '^H' -echoctl 2>/dev/null || true
+      IFS= read -r ans || true
+    elif [ "$rc" -ne 0 ]; then
+      ans=""
+    fi
+  else
+    IFS= read -r ans || true
+  fi
+  # 预填默认值时，用户若没改，答案就是默认值本身
   printf '%s' "${ans:-$def}"
 }
 
@@ -32,8 +49,19 @@ run_wizard() {
   log "开始安装向导(全部可回车用默认值)"
   local vpn_cidr wg_port endpoint client_dns lan_cidrs panel_bind panel_port def_mode access_choice mode_choice
 
-  # 1. WireGuard 网段
-  vpn_cidr="$(ask 'WireGuard 网段(设备互联用, 一般不用改)' '10.66.66.0/24')"
+  # 1. WireGuard 网段（三选一，避免手打网段时退格把字打乱）
+  printf '设备之间用哪段地址(请选一个不和家里、公司现有网段重复的):\n' >&2
+  printf '  1) 10.66.66.0/24（推荐）\n' >&2
+  printf '  2) 10.77.77.0/24\n' >&2
+  printf '  3) 172.31.88.0/24\n' >&2
+  local cidr_choice
+  cidr_choice="$(ask '选 1、2 或 3' '1')"
+  case "$cidr_choice" in
+    1) vpn_cidr="10.66.66.0/24" ;;
+    2) vpn_cidr="10.77.77.0/24" ;;
+    3) vpn_cidr="172.31.88.0/24" ;;
+    *) die "无效选择, 请输入 1、2 或 3" ;;
+  esac
 
   # 2. 服务端口
   wg_port="$(ask '服务端口 UDP(一般不用改)' '51820')"
