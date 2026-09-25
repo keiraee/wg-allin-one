@@ -66,6 +66,8 @@ class UninstallTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         out = r.stdout + r.stderr
         self.assertIn("config.json", out)
+        self.assertIn("certs/", out)
+        self.assertIn("99-wgaio.conf", out)
         self.assertIn("--keep-clients", out)
 
 
