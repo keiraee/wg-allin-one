@@ -77,6 +77,11 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(core.ApiError):
             core.load_config(p)
 
+    def test_reject_bool_panel_port(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "panel_port": True})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
 
 if __name__ == "__main__":
     unittest.main()
