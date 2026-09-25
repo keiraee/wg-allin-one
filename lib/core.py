@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """wg-allin-one 核心：WireGuard 设备管理（CLI 后端）。"""
 import argparse
+import contextlib
 import hashlib
 import hmac
 import json
@@ -377,6 +378,53 @@ def read_priv(name):
 
 _conf_lock = threading.Lock()
 _sessions_lock = threading.Lock()
+
+
+def _lock_fd(fh):
+    if os.name == "posix":
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return
+    import msvcrt
+    fh.seek(0, os.SEEK_END)
+    if fh.tell() == 0:
+        fh.write(b"\0")
+        fh.flush()
+    fh.seek(0)
+    while True:
+        try:
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            return
+        except OSError:
+            time.sleep(0.05)
+
+
+def _unlock_fd(fh):
+    if os.name == "posix":
+        import fcntl
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return
+    import msvcrt
+    fh.seek(0)
+    try:
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
+@contextlib.contextmanager
+def wg_lock():
+    """同一进程用线程锁排队，不同进程用 wg0.conf.lock 互斥。"""
+    lock_path = Path(str(WG_CONF) + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with _conf_lock:
+        fh = open(lock_path, "a+b")
+        try:
+            _lock_fd(fh)
+            yield
+        finally:
+            _unlock_fd(fh)
+            fh.close()
 # 无 TTL/无登出: 已知缺口, T6 覆盖限流与会话清理
 _sessions = OrderedDict()
 
@@ -416,7 +464,7 @@ def is_gateway(peer, ip):
 
 def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
     name = normalize_name(name)
-    with _conf_lock:
+    with wg_lock():
         iface_lines, peers = parse_conf()
         if find_peer(peers, name) or load_client_meta(name):
             raise ApiError("设备名已存在: %s" % name)
@@ -449,7 +497,7 @@ def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
 
 
 def remove_peer(name, force=False):
-    with _conf_lock:
+    with wg_lock():
         iface_lines, peers = parse_conf()
         peer = find_peer(peers, name)
         if not peer:
@@ -469,7 +517,7 @@ def remove_peer(name, force=False):
 def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                 mode=None, routes=None, cfg=None):
     cfg = cfg or load_config()
-    with _conf_lock:
+    with wg_lock():
         iface_lines, peers = parse_conf()
         peer = find_peer(peers, name)
         if not peer:
@@ -566,7 +614,7 @@ def live_status():
     return info, listen_port
 
 
-# 读路径刻意不持锁(conf 原子替换保证一致性); 若未来 CLI+HTTP 进程级并发成真, 再考虑文件锁
+# 读路径不持锁。写路径用 wg_lock，避免 CLI 和面板两个进程互相覆盖。
 def list_peers(live=None):
     if live is None:
         live, _ = live_status()
@@ -609,7 +657,7 @@ def list_peers(live=None):
     return rows
 
 
-# 读路径刻意不持锁(conf 原子替换保证一致性); 若未来 CLI+HTTP 进程级并发成真, 再考虑文件锁
+# 读路径不持锁。写路径用 wg_lock，避免 CLI 和面板两个进程互相覆盖。
 def show_conf(name):
     conf_p, _ = client_paths(name)
     if not conf_p.exists():

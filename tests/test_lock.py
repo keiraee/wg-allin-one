@@ -1,6 +1,8 @@
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -61,6 +63,36 @@ class ConcurrencyTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
         self.assertEqual(len(set(results)), 8, "并发添加分配到了重复 IP: %s" % results)
+
+    def test_other_process_waits_on_file_lock(self):
+        lib = str(Path(__file__).resolve().parents[1] / "lib")
+        flag = Path(self.tmp.name) / "held"
+        script = (
+            "import os, sys, time\n"
+            "from pathlib import Path\n"
+            "os.environ['WGAIO_WG_CONF'] = sys.argv[1]\n"
+            "sys.path.insert(0, sys.argv[2])\n"
+            "import core\n"
+            "with core.wg_lock():\n"
+            "    Path(sys.argv[3]).write_text('held', encoding='utf-8')\n"
+            "    time.sleep(1.2)\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script, str(core.WG_CONF), lib, str(flag)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            for _ in range(50):
+                if flag.exists():
+                    break
+                time.sleep(0.05)
+            self.assertTrue(flag.exists(), "子进程没有拿到锁")
+            started = time.time()
+            with core.wg_lock():
+                waited = time.time() - started
+        finally:
+            _out, err = proc.communicate(timeout=5)
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertGreater(waited, 0.4, "另一进程没有被文件锁挡住")
 
 
 if __name__ == "__main__":
