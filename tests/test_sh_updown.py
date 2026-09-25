@@ -53,6 +53,47 @@ class UpgradeTests(unittest.TestCase):
         self.assertIn("校验通过", r.stdout + r.stderr)
 
 
+class UpgradeApplyTests(unittest.TestCase):
+    def test_upgrade_keeps_config_and_rollback_restores_entry(self):
+        import hashlib
+        import shutil
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        root = base / "inst"
+        src = base / "src"
+        (root / "lib").mkdir(parents=True)
+        (src / "lib").mkdir(parents=True)
+        shutil.copy(ROOT / "lib" / "core.sh", root / "lib" / "core.sh")
+        shutil.copy(ROOT / "lib" / "core.sh", src / "lib" / "core.sh")
+        shutil.copy(ROOT / "lib" / "upgrade.sh", root / "lib" / "upgrade.sh")
+        shutil.copy(ROOT / "lib" / "upgrade.sh", src / "lib" / "upgrade.sh")
+        (root / "wgaio.sh").write_text("old-entry\n", encoding="utf-8", newline="\n")
+        (root / "config.json").write_text("KEEP\n", encoding="utf-8", newline="\n")
+        (src / "wgaio.sh").write_text("new-entry\n", encoding="utf-8", newline="\n")
+        names = ["wgaio.sh", "lib/core.sh", "lib/upgrade.sh"]
+        lines = []
+        for name in names:
+            digest = hashlib.sha256((src / name).read_bytes()).hexdigest()
+            lines.append("%s  %s" % (digest, name))
+        (src / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, "STDOUT:\n%s\nSTDERR:\n%s" % (r.stdout, r.stderr))
+        self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "new-entry\n")
+        self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
+        listed = run_bash('tar -xOf snapshots/wgaio-*.tar.gz wgaio.sh', cwd=root)
+        self.assertEqual(listed.stdout, "old-entry\n", listed.stderr)
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; cmd_rollback',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, "STDOUT:\n%s\nSTDERR:\n%s" % (r.stdout, r.stderr))
+        self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "old-entry\n")
+        self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
+
+
 class UninstallTests(unittest.TestCase):
     def test_uninstall_dry_run_lists_targets(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

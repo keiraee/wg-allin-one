@@ -27,7 +27,7 @@ wgaio user add|del|edit|list|show
 wgaio panel start|stop|restart|status|install
 wgaio status
 wgaio logs
-wgaio upgrade  校验+快照(覆盖步骤待实现)
+wgaio upgrade  校验下载后覆盖程序文件(不动 config.json 与 clients/)
 wgaio rollback
 wgaio uninstall
 ```
