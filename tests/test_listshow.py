@@ -40,6 +40,7 @@ class ListShowTests(unittest.TestCase):
         self.assertEqual(rows[0]["state"], "ok")
         self.assertEqual(rows[0]["rx"], 100)
         self.assertTrue(rows[0]["has_client"])
+        self.assertEqual(rows[0]["mode"], "split")
 
     @mock.patch("core.wg_set_peer")
     @mock.patch("core.server_pubkey", return_value="SPUB")

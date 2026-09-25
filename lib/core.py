@@ -562,9 +562,11 @@ def list_peers(live=None):
             state = "off"
         ip = p["allowed_ips"][0].split("/")[0] if p["allowed_ips"] else ""
         has_client = False
+        meta = None
         if p["name"]:
             try:
                 has_client = client_paths(p["name"])[0].exists()
+                meta = load_client_meta(p["name"])
             except ApiError:
                 has_client = False  # 手工对等端名字不合法时也不能炸列表
         rows.append({
@@ -579,6 +581,7 @@ def list_peers(live=None):
             "state": state,
             "is_gateway": is_gateway(p, ip),
             "has_client": has_client,
+            "mode": (meta or {}).get("mode", "split"),
         })
     return rows
 

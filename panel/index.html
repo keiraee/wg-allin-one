@@ -1,1 +1,96 @@
-<!doctype html><title>wg-allin-one</title><div id="login-mask"></div>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WireGuard 管理面板</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <span class="logo">▮ WG-PANEL</span>
+  <h1>WireGuard 设备管理</h1>
+  <span class="tag">VPN 内网专用 · 公网不可达</span>
+</header>
+
+<div id="login-mask">
+  <div class="login-box">
+    <h3>访问令牌</h3>
+    <input id="login-token" type="password" placeholder="输入安装时生成的令牌" autocomplete="current-password">
+    <button class="primary" id="btn-login">登录</button>
+    <p class="hint" id="login-err"></p>
+  </div>
+</div>
+
+<div id="msg"></div>
+
+<div id="status-bar">
+  <span class="kv"><b>接口</b><span id="st-iface">...</span></span>
+  <span class="kv"><b>监听</b><span id="st-port">...</span></span>
+  <span class="kv"><b>接入点</b><span id="st-ep">...</span></span>
+  <span class="kv"><b>服务端公钥</b><span id="st-pub" class="mono">...</span></span>
+  <span class="kv"><b>设备数</b><span id="st-count">...</span></span>
+</div>
+
+<section class="panel">
+  <h2>＋ 新建设备</h2>
+  <div class="panel-body">
+    <div class="form-grid">
+      <label class="field">设备名(字母/数字/_/-)
+        <input id="f-name" maxlength="15" placeholder="如 phone / laptop">
+      </label>
+      <label class="field">内网 IP
+        <input id="f-ip" class="ip mono" placeholder="10.66.66.x">
+      </label>
+      <label class="field">DNS
+        <input id="f-dns" class="mono" placeholder="192.168.1.1">
+      </label>
+      <label class="field">保活(秒)
+        <input id="f-ka" class="ip mono" value="25" maxlength="3">
+      </label>
+      <label class="field">流量模式
+        <select id="f-mode">
+          <option value="split">分流(只进内网)</option>
+          <option value="full">全隧道(0.0.0.0/0)</option>
+        </select>
+      </label>
+      <label class="field">网关路由段(可选)
+        <input id="f-routes" class="mono" placeholder="192.168.1.0/24">
+      </label>
+      <button class="primary" id="btn-add">生成配置</button>
+    </div>
+    <p class="hint" style="margin-top:8px">留空 IP 则自动分配下一个可用地址。生成后弹出 .conf 内容, 可下载到设备导入 WireGuard。</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>≡ 设备列表</h2>
+  <div class="panel-body" style="padding:0">
+    <table>
+      <thead>
+        <tr>
+          <th>状态</th><th>设备名</th><th>IP</th><th>路由段</th>
+          <th>最近握手</th><th>接收</th><th>发送</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="peer-rows">
+        <tr><td colspan="8" class="muted">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>wg-panel v1.0 · 纯标准库 · 只监听 127.0.0.1 / 10.66.66.1</footer>
+
+<!-- 弹窗 -->
+<div id="modal-mask">
+  <div class="modal-box">
+    <h3 id="modal-title">标题</h3>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
