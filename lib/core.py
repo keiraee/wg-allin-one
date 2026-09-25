@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -348,6 +349,9 @@ def read_priv(name):
     return ""
 
 
+_conf_lock = threading.Lock()
+
+
 def wg_set_peer(pubkey, allowed_ips=None, keepalive=None, remove=False):
     try:
         r = subprocess.run(["ip", "link", "show", WG_IFACE], capture_output=True, timeout=5)
@@ -379,122 +383,125 @@ def is_gateway(peer, ip):
 
 def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
     name = normalize_name(name)
-    iface_lines, peers = parse_conf()
-    if find_peer(peers, name) or load_client_meta(name):
-        raise ApiError("设备名已存在: %s" % name)
-    ip = normalize_ip(ip, cfg, used_ips()) if ip else next_ip(cfg)
-    mode = mode or cfg.get("default_mode") or "split"
-    if mode not in ("split", "full"):
-        raise ApiError("mode 只能是 split/full")
-    try:
-        keepalive = int(keepalive) if keepalive is not None else 25
-    except (TypeError, ValueError):
-        keepalive = 25
-    keepalive = max(0, min(120, keepalive))
-    extra_routes = normalize_routes(routes)
+    with _conf_lock:
+        iface_lines, peers = parse_conf()
+        if find_peer(peers, name) or load_client_meta(name):
+            raise ApiError("设备名已存在: %s" % name)
+        ip = normalize_ip(ip, cfg, used_ips()) if ip else next_ip(cfg)
+        mode = mode or cfg.get("default_mode") or "split"
+        if mode not in ("split", "full"):
+            raise ApiError("mode 只能是 split/full")
+        try:
+            keepalive = int(keepalive) if keepalive is not None else 25
+        except (TypeError, ValueError):
+            keepalive = 25
+        keepalive = max(0, min(120, keepalive))
+        extra_routes = normalize_routes(routes)
 
-    priv, pub = gen_keypair()
-    peer = {"name": name, "pubkey": pub,
-            "allowed_ips": ["%s/32" % ip] + extra_routes,
-            "keepalive": keepalive, "extra": []}
-    peers.append(peer)
-    write_conf(iface_lines, peers)
-    wg_set_peer(pub, allowed_ips=", ".join(peer["allowed_ips"]), keepalive=keepalive)
-    use_dns = dns or cfg.get("client_dns") or "1.1.1.1"
-    cfg_run = dict(cfg)
-    cfg_run["client_dns"] = use_dns
-    conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive)
-    meta = {"name": name, "pubkey": pub, "ip": ip, "mode": mode,
-            "dns": use_dns, "keepalive": keepalive, "routes": extra_routes}
-    save_client(name, conf_text, meta)
-    return meta, conf_text
+        priv, pub = gen_keypair()
+        peer = {"name": name, "pubkey": pub,
+                "allowed_ips": ["%s/32" % ip] + extra_routes,
+                "keepalive": keepalive, "extra": []}
+        peers.append(peer)
+        write_conf(iface_lines, peers)
+        wg_set_peer(pub, allowed_ips=", ".join(peer["allowed_ips"]), keepalive=keepalive)
+        use_dns = dns or cfg.get("client_dns") or "1.1.1.1"
+        cfg_run = dict(cfg)
+        cfg_run["client_dns"] = use_dns
+        conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive)
+        meta = {"name": name, "pubkey": pub, "ip": ip, "mode": mode,
+                "dns": use_dns, "keepalive": keepalive, "routes": extra_routes}
+        save_client(name, conf_text, meta)
+        return meta, conf_text
 
 
 def remove_peer(name, force=False):
-    iface_lines, peers = parse_conf()
-    peer = find_peer(peers, name)
-    if not peer:
-        raise ApiError("找不到设备: %s" % name, 404)
-    ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
-    if is_gateway(peer, ip) and not force:
-        extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
-        raise ApiError("该设备是内网网关(带路由 %s), 删除会断掉进内网; 确认请加 --force"
-                       % ", ".join(extras), 409)
-    peers.remove(peer)
-    write_conf(iface_lines, peers)
-    wg_set_peer(peer["pubkey"], remove=True)
-    drop_client(name)
-    return {"removed": name}
+    with _conf_lock:
+        iface_lines, peers = parse_conf()
+        peer = find_peer(peers, name)
+        if not peer:
+            raise ApiError("找不到设备: %s" % name, 404)
+        ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
+        if is_gateway(peer, ip) and not force:
+            extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
+            raise ApiError("该设备是内网网关(带路由 %s), 删除会断掉进内网; 确认请加 --force"
+                           % ", ".join(extras), 409)
+        peers.remove(peer)
+        write_conf(iface_lines, peers)
+        wg_set_peer(peer["pubkey"], remove=True)
+        drop_client(name)
+        return {"removed": name}
 
 
 def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                 mode=None, routes=None, cfg=None):
     cfg = cfg or load_config()
-    iface_lines, peers = parse_conf()
-    peer = find_peer(peers, name)
-    if not peer:
-        raise ApiError("找不到设备: %s" % name, 404)
-    meta = load_client_meta(name) or {"name": name, "pubkey": peer["pubkey"],
-                                      "routes": [], "ip": ""}
-    priv = read_priv(name)  # 先读私钥 —— 改名会删旧文件, 之后就读不到了
+    with _conf_lock:
+        iface_lines, peers = parse_conf()
+        peer = find_peer(peers, name)
+        if not peer:
+            raise ApiError("找不到设备: %s" % name, 404)
+        meta = load_client_meta(name) or {"name": name, "pubkey": peer["pubkey"],
+                                          "routes": [], "ip": ""}
+        priv = read_priv(name)  # 先读私钥 —— 改名会删旧文件, 之后就读不到了
 
-    if new_name and new_name != name:
-        new_name = normalize_name(new_name)
-        if find_peer(peers, new_name) or load_client_meta(new_name):
-            raise ApiError("设备名已存在: %s" % new_name)
-        drop_client(name)
-        peer["name"] = new_name
-        meta["name"] = new_name
-        name = new_name
+        if new_name and new_name != name:
+            new_name = normalize_name(new_name)
+            if find_peer(peers, new_name) or load_client_meta(new_name):
+                raise ApiError("设备名已存在: %s" % new_name)
+            drop_client(name)
+            peer["name"] = new_name
+            meta["name"] = new_name
+            name = new_name
 
-    cur_ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
-    if ip:
-        new_ip = normalize_ip(ip, cfg, used_ips(), current=cur_ip)
-        extras = [a for a in peer["allowed_ips"] if a != "%s/32" % cur_ip]
-        peer["allowed_ips"] = ["%s/32" % new_ip] + extras
-        meta["ip"] = new_ip
+        cur_ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
+        if ip:
+            new_ip = normalize_ip(ip, cfg, used_ips(), current=cur_ip)
+            extras = [a for a in peer["allowed_ips"] if a != "%s/32" % cur_ip]
+            peer["allowed_ips"] = ["%s/32" % new_ip] + extras
+            meta["ip"] = new_ip
 
-    if routes is not None:
-        extra_routes = normalize_routes(routes)
-        base = peer["allowed_ips"][0]
-        peer["allowed_ips"] = [base] + extra_routes
-        meta["routes"] = extra_routes
+        if routes is not None:
+            extra_routes = normalize_routes(routes)
+            base = peer["allowed_ips"][0]
+            peer["allowed_ips"] = [base] + extra_routes
+            meta["routes"] = extra_routes
 
-    if keepalive is not None:
-        try:
-            ka = max(0, min(120, int(keepalive)))
-        except (TypeError, ValueError):
-            ka = peer.get("keepalive") or 0
-        peer["keepalive"] = ka
-        meta["keepalive"] = ka
+        if keepalive is not None:
+            try:
+                ka = max(0, min(120, int(keepalive)))
+            except (TypeError, ValueError):
+                ka = peer.get("keepalive") or 0
+            peer["keepalive"] = ka
+            meta["keepalive"] = ka
 
-    if mode:
-        if mode not in ("split", "full"):
-            raise ApiError("mode 只能是 split/full")
-        meta["mode"] = mode
-    if dns:
-        meta["dns"] = dns
+        if mode:
+            if mode not in ("split", "full"):
+                raise ApiError("mode 只能是 split/full")
+            meta["mode"] = mode
+        if dns:
+            meta["dns"] = dns
 
-    write_conf(iface_lines, peers)
-    wg_set_peer(peer["pubkey"], allowed_ips=", ".join(peer["allowed_ips"]),
-                keepalive=peer.get("keepalive") or 0)
-    if priv:
-        cfg_run = dict(cfg)
-        if meta.get("dns"):
-            cfg_run["client_dns"] = meta["dns"]
-        conf_text = build_client_conf(priv, meta.get("ip") or cur_ip, cfg_run,
-                                      meta.get("mode", "split"),
-                                      server_pubkey(),
-                                      meta.get("keepalive", 25))
-        save_client(name, conf_text, meta)
-    else:
-        # 无客户端私钥备份(手工对等端): 仍持久化 meta, 否则改名即失联
-        Path(CLIENTS).mkdir(parents=True, exist_ok=True)
-        _, meta_p = client_paths(name)
-        meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1),
-                          encoding="utf-8")
-        meta_p.chmod(0o600)
-    return meta
+        write_conf(iface_lines, peers)
+        wg_set_peer(peer["pubkey"], allowed_ips=", ".join(peer["allowed_ips"]),
+                    keepalive=peer.get("keepalive") or 0)
+        if priv:
+            cfg_run = dict(cfg)
+            if meta.get("dns"):
+                cfg_run["client_dns"] = meta["dns"]
+            conf_text = build_client_conf(priv, meta.get("ip") or cur_ip, cfg_run,
+                                          meta.get("mode", "split"),
+                                          server_pubkey(),
+                                          meta.get("keepalive", 25))
+            save_client(name, conf_text, meta)
+        else:
+            # 无客户端私钥备份(手工对等端): 仍持久化 meta, 否则改名即失联
+            Path(CLIENTS).mkdir(parents=True, exist_ok=True)
+            _, meta_p = client_paths(name)
+            meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1),
+                              encoding="utf-8")
+            meta_p.chmod(0o600)
+        return meta
 
 
 def live_status():
