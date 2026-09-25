@@ -29,6 +29,7 @@ case "$cmd" in
   ""|-h|--help) usage; exit 2 ;;
   version) printf 'wgaio %s\n' "$VERSION"; exit 0 ;;
   user) shift; . "$ROOT/lib/user.sh"; cmd_user "$@" ;;
+  rollback) shift; . "$ROOT/lib/upgrade.sh"; cmd_rollback "$@" ;;
   install|upgrade|uninstall|panel|status|logs)
     mod="$ROOT/lib/${cmd}.sh"
     [ -f "$mod" ] || die "模块未安装: $cmd"
