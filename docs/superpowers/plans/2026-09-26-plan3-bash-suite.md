@@ -903,7 +903,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("wgaio", md)
         self.assertIn("安全组", md)
         self.assertNotIn("Hcy", md)          # 真实密码不得出现
-        self.assertNotIn("203" + r"\." + "0" + r"\." + "113" + r"\." + "7", md)  # 真实 IP 不得出现(片段构造防扫描自咬)
+        self.assertNotIn("203.0.113.7", md)  # 真实 IP 不得出现
 
 
 if __name__ == "__main__":

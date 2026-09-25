@@ -11,8 +11,8 @@ cmd_uninstall() {
       --keep-clients) keep=1 ;;
     esac
   done
-  log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json, lib/, panel/"
-  [ "$keep" -eq 1 ] && log "保留: clients/ (--keep-clients)"
+  log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
+  log "程序文件(lib/ panel/ wgaio.sh)保留, 如需彻底删除请自行移除安装目录"
   log "用法提示: 可选参数 --keep-clients | --dry-run"
   [ "$dry" -eq 1 ] && { log "(dry-run, 未执行任何删除)"; return 0; }
   command -v systemctl >/dev/null 2>&1 && systemctl disable --now wgaio-panel 2>/dev/null || true
