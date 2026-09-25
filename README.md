@@ -26,7 +26,7 @@ wgaio user add|del|edit|list|show
 wgaio panel start|stop|restart|status|install
 wgaio status
 wgaio logs
-wgaio upgrade
+wgaio upgrade  校验+快照(覆盖步骤待实现)
 wgaio rollback
 wgaio uninstall
 ```
