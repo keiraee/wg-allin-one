@@ -60,7 +60,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(core.normalize_routes(None), [])
 
     def test_reject_bad(self):
-        for r in ("192.168.1.1", "abc/24", "1.2.3.4/33"):
+        for r in ("192.168.1.1", "abc/24", "1.2.3.4/33", "0.0.0.0/0"):
             with self.assertRaises(core.ApiError):
                 core.normalize_routes(r)
 

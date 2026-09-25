@@ -64,7 +64,8 @@ class ClientConfTests(unittest.TestCase):
     def test_full_mode(self):
         text = core.build_client_conf("PRIV", "10.66.66.9", CFG, mode="full",
                                       server_pub="SPUB", keepalive=25)
-        self.assertIn("AllowedIPs = 0.0.0.0/0, ::/0", text)
+        self.assertIn("AllowedIPs = 0.0.0.0/0", text)
+        self.assertNotIn("::/0", text)
 
 
 if __name__ == "__main__":

@@ -166,7 +166,12 @@ def normalize_routes(routes):
         if not CIDR_RE.match(r):
             raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
         try:
+            _net, _sep, prefix = r.partition("/")
+            if int(prefix or "32") == 0:
+                raise ApiError("网关路由不能是默认路由，全隧道请改流量模式")
             cidr_bounds(r)  # 拒绝 /33 之类越界前缀
+        except ApiError:
+            raise
         except ValueError:
             raise ApiError("路由段不合法(要形如 192.168.1.0/24): %s" % r)
         out.append(r)
@@ -277,7 +282,8 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
     endpoint = cfg.get("endpoint")
     if not endpoint:
         raise ApiError("配置缺少 endpoint", 500)
-    allowed = "0.0.0.0/0, ::/0" if mode == "full" else ", ".join(
+    # 本期不做 IPv6。带上 ::/0 会把双栈设备的 IPv6 吸进没有 v6 地址的隧道。
+    allowed = "0.0.0.0/0" if mode == "full" else ", ".join(
         [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or []))
     return (
         "[Interface]\n"

@@ -27,11 +27,25 @@ render_wg0_conf() {  # render_wg0_conf <private_key> <vpn_cidr> <wg_port> → st
   py="$(find_python)"
   prefix="${vpn_cidr#*/}"
   gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$vpn_cidr")"
+  # 不设 Table=off：中枢要让 wg-quick 安装对等端网段路由。
+  # 默认路由只出现在客户端配置里，服务端拒绝 0.0.0.0/0，避免 SSH 被吸走。
   cat <<EOF
 [Interface]
 Address = ${gw_ip}/${prefix}
 ListenPort = ${wg_port}
+MTU = 1420
 PrivateKey = ${priv}
+PostUp = sysctl -w net.ipv4.ip_forward=1
+PostUp = iptables -C FORWARD -i %i -j ACCEPT || iptables -A FORWARD -i %i -j ACCEPT
+PostUp = iptables -C FORWARD -o %i -j ACCEPT || iptables -A FORWARD -o %i -j ACCEPT
+PostUp = iptables -t mangle -C FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || iptables -t mangle -A FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+PostUp = iptables -t mangle -C FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || iptables -t mangle -A FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+PostUp = wan=\$(ip -4 route show default 2>/dev/null | awk '{print \$5; exit}'); [ -n "\$wan" ] && { iptables -t nat -C POSTROUTING -s ${vpn_cidr} -o "\$wan" -j MASQUERADE || iptables -t nat -A POSTROUTING -s ${vpn_cidr} -o "\$wan" -j MASQUERADE; }
+PostDown = iptables -D FORWARD -i %i -j ACCEPT || true
+PostDown = iptables -D FORWARD -o %i -j ACCEPT || true
+PostDown = iptables -t mangle -D FORWARD -i %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true
+PostDown = iptables -t mangle -D FORWARD -o %i -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true
+PostDown = wan=\$(ip -4 route show default 2>/dev/null | awk '{print \$5; exit}'); [ -n "\$wan" ] && iptables -t nat -D POSTROUTING -s ${vpn_cidr} -o "\$wan" -j MASQUERADE || true
 EOF
 }
 
@@ -39,6 +53,8 @@ init_wg_hub() {
   local conf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
   if [ -f "$conf" ]; then
     log "wg0.conf 已存在, 保持不动(不覆盖现有 WireGuard 配置)"
+    grep -q "MASQUERADE" "$conf" 2>/dev/null \
+      || warn "现有 wg0.conf 没有 NAT, 全隧道上网需要自行加转发和 MASQUERADE"
     return 0
   fi
   command -v wg >/dev/null 2>&1 || die "wg 不可用, 请先安装 wireguard-tools"
@@ -50,9 +66,6 @@ init_wg_hub() {
   log "已生成 WireGuard 中枢配置: $conf"
   sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || warn "开启转发失败, 请手动设置 ip_forward=1"
   printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-wgaio.conf 2>/dev/null || true
-  iptables -C FORWARD -i wg0 -o wg0 -j ACCEPT 2>/dev/null \
-    || iptables -A FORWARD -i wg0 -o wg0 -j ACCEPT 2>/dev/null \
-    || warn "iptables 规则添加失败(可能用 nft); 若设备互通异常请手动放行 wg0 转发"
   if command -v systemctl >/dev/null 2>&1; then
     systemctl enable --now wg-quick@wg0 2>/dev/null \
       || warn "wg-quick@wg0 启动失败, 可用 wgaio status 查看"

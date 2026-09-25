@@ -209,7 +209,7 @@ function editPeer(name) {
        </label>
        <label class="field">网关路由段(逗号分隔, 空=无)<input id="e-routes" class="mono" value="${esc(extraRoutesOf(p))}"></label>
        ${p.is_gateway ? '<p class="warn-text">⚠ 这是内网网关, 改动请确认无误。</p>' : ""}
-       <p class="hint">改 IP/名称后请重新下载 .conf 导入到设备。全隧道需要服务端转发配合。</p>
+       <p class="hint">改 IP/名称后请重新下载 .conf 导入到设备。全隧道只走 IPv4，安装时会在 wg0 上打开转发和 NAT。</p>
        <div class="modal-ops">
          <button class="primary" data-action="save" data-name="${esc(p.name)}">保存</button>
          <button data-action="close">取消</button>

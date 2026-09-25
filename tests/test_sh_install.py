@@ -104,6 +104,10 @@ class InstallTests(unittest.TestCase):
         self.assertIn("Address = 10.66.66.1/24", r.stdout)
         self.assertIn("ListenPort = 51820", r.stdout)
         self.assertIn("PrivateKey = TESTKEY", r.stdout)
+        self.assertIn("MASQUERADE", r.stdout)
+        self.assertIn("TCPMSS", r.stdout)
+        self.assertIn("-s 10.66.66.0/24", r.stdout)
+        self.assertNotIn("Table = off", r.stdout)
 
     def test_init_wg_hub_idempotent(self):
         """init_wg_hub must NOT overwrite an existing wg0.conf."""
