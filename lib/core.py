@@ -276,7 +276,24 @@ def next_ip(cfg, peers=None):
     raise ApiError("%s 地址已用尽" % cfg["vpn_cidr"])
 
 
-def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
+def split_allowed(cfg, peers, self_name):
+    """分流客户端要进隧道的网段：本机网段、全局内网，以及其他设备宣布的网关路由。"""
+    routes = []
+    for item in cfg.get("lan_cidrs") or []:
+        item = str(item)
+        if item and item not in routes:
+            routes.append(item)
+    for peer in peers or []:
+        if self_name and peer.get("name") == self_name:
+            continue
+        for item in peer.get("allowed_ips") or []:
+            if item.endswith("/32") or item == cfg.get("vpn_cidr") or item in routes:
+                continue
+            routes.append(item)
+    return ", ".join([cfg["vpn_cidr"]] + routes)
+
+
+def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive, peers=None, self_name=None):
     try:
         keepalive = int(keepalive)
     except (TypeError, ValueError):
@@ -285,8 +302,7 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
     if not endpoint:
         raise ApiError("配置缺少 endpoint", 500)
     # 本期不做 IPv6。带上 ::/0 会把双栈设备的 IPv6 吸进没有 v6 地址的隧道。
-    allowed = "0.0.0.0/0" if mode == "full" else ", ".join(
-        [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or []))
+    allowed = "0.0.0.0/0" if mode == "full" else split_allowed(cfg, peers, self_name)
     return (
         "[Interface]\n"
         "PrivateKey = %s\n"
@@ -299,6 +315,35 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive):
         "Endpoint = %s\n"
         "PersistentKeepalive = %d\n"
     ) % (priv, ip, cfg.get("client_dns") or "1.1.1.1", server_pub, allowed, endpoint, keepalive)
+
+
+def refresh_client_confs(cfg, peers):
+    """网关路由变化后，重写已有私钥的客户端配置。调用方须已持有 wg_lock。"""
+    pub = server_pubkey()
+    for peer in peers:
+        name = peer.get("name") or ""
+        if not name:
+            continue
+        try:
+            normalize_name(name)
+        except ApiError:
+            continue
+        priv = read_priv(name)
+        meta = load_client_meta(name)
+        if not priv or not meta:
+            continue
+        ip = meta.get("ip") or ""
+        if not ip and peer.get("allowed_ips"):
+            ip = peer["allowed_ips"][0].split("/")[0]
+        if not ip:
+            continue
+        cfg_run = dict(cfg)
+        if meta.get("dns"):
+            cfg_run["client_dns"] = meta["dns"]
+        text = build_client_conf(
+            priv, ip, cfg_run, meta.get("mode") or cfg.get("default_mode") or "split",
+            pub, meta.get("keepalive", peer.get("keepalive") or 25), peers, name)
+        save_client(name, text, meta)
 
 
 _PRIVKEY_RE = re.compile(r"^\s*PrivateKey\s*=\s*(\S+)", re.M)
@@ -491,14 +536,16 @@ def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
         use_dns = dns or cfg.get("client_dns") or "1.1.1.1"
         cfg_run = dict(cfg)
         cfg_run["client_dns"] = use_dns
-        conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive)
+        conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive, peers, name)
         meta = {"name": name, "pubkey": pub, "ip": ip, "mode": mode,
                 "dns": use_dns, "keepalive": keepalive, "routes": extra_routes}
         save_client(name, conf_text, meta)
+        refresh_client_confs(cfg, peers)
+        conf_text = client_paths(name)[0].read_text(encoding="utf-8")
         return meta, conf_text
 
 
-def remove_peer(name, force=False):
+def remove_peer(name, force=False, cfg=None):
     with wg_lock():
         iface_lines, peers = parse_conf()
         peer = find_peer(peers, name)
@@ -513,6 +560,8 @@ def remove_peer(name, force=False):
         write_conf(iface_lines, peers)
         wg_set_peer(peer["pubkey"], remove=True)
         drop_client(name)
+        if cfg:
+            refresh_client_confs(cfg, peers)
         return {"removed": name}
 
 
@@ -575,7 +624,7 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             conf_text = build_client_conf(priv, meta.get("ip") or cur_ip, cfg_run,
                                           meta.get("mode", "split"),
                                           server_pubkey(),
-                                          meta.get("keepalive", 25))
+                                          meta.get("keepalive", 25), peers, name)
             save_client(name, conf_text, meta)
         else:
             # 无客户端私钥备份(手工对等端): 仍持久化 meta, 否则改名即失联
@@ -586,6 +635,7 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             meta_p.chmod(0o600)
         if old_name != name:
             drop_client(old_name)
+        refresh_client_confs(cfg, peers)
         return meta
 
 
@@ -738,7 +788,7 @@ def main(argv=None):
                                args.mode, args.routes, cfg)
             print("已生成 %s (%s/%s)" % (meta["name"], meta["ip"], meta["mode"]))
         elif args.ucmd == "del":
-            remove_peer(args.name, force=args.force)
+            remove_peer(args.name, force=args.force, cfg=cfg)
             print("已删除 %s" % args.name)
         elif args.ucmd == "edit":
             meta = update_peer(args.name, new_name=args.rename, ip=args.ip,
@@ -761,7 +811,6 @@ def main(argv=None):
 
 
 def session_cookie(value, max_age):
-    # Secure 由 HTTPS 监听时另外加上。
     return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d" % (value, max_age)
 
 
@@ -938,7 +987,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "DELETE":
             force = parse_qs(u.query).get("force", ["0"])[0] == "1"
             self._json({"ok": True, "peer": {"name": parts[2]},
-                        **remove_peer(parts[2], force=force)})
+                        **remove_peer(parts[2], force=force, cfg=cfg)})
             return
         if len(parts) == 3 and parts[:2] == ["api", "peers"] and method == "PATCH":
             b = self._body()

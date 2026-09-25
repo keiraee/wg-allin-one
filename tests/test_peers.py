@@ -53,6 +53,16 @@ class AddPeerTests(PeerBase):
         _, peers = core.parse_conf()
         self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.2/32", "192.168.1.0/24"])
 
+    def test_gateway_route_updates_other_clients(self, m_gen, m_pub, m_set):
+        core.add_peer("phone", None, None, None, "split", None, CFG)
+        core.add_peer("router", None, None, None, "split", "10.1.0.0/8", CFG)
+        phone = core.show_conf("phone")
+        router = core.show_conf("router")
+        self.assertIn("10.1.0.0/8", phone)
+        self.assertNotIn("10.1.0.0/8", router)
+        core.remove_peer("router", force=True, cfg=CFG)
+        self.assertNotIn("10.1.0.0/8", core.show_conf("phone"))
+
     def test_add_rejects_dup_name(self, m_gen, m_pub, m_set):
         core.add_peer("phone", None, None, None, None, None, CFG)
         with self.assertRaises(core.ApiError):
