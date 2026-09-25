@@ -24,3 +24,4 @@ __pycache__/
 _stage/
 snapshots/
 config.json
+_t.service
