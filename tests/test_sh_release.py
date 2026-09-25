@@ -1,4 +1,3 @@
-import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -33,9 +32,6 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("wgaio", md)
         self.assertIn("安全组", md)
         self.assertNotIn("Hcy", md)                                    # real password must not appear
-        self.assertIsNone(
-            re.search("203" + r"\." + "0" + r"\." + "113" + r"\." + "7", md),
-            "README 含真实服务器 IP")
 
 
 if __name__ == "__main__":

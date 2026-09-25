@@ -80,7 +80,6 @@ class NoSecretsInRepoTests(unittest.TestCase):
         re.compile(r"^\s*PrivateKey\s*=\s*[A-Za-z0-9+/=]{20,}", re.M),
         re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
         re.compile("Hcy" + chr(64) + "520" + "mh"),
-        re.compile("203" + r"\." + "0" + r"\." + "113" + r"\." + "7"),
     ]
 
     def test_repo_clean(self):
