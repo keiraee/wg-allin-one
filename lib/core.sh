@@ -6,12 +6,17 @@ wgaio_root() { cd "$(dirname "${BASH_SOURCE[1]}")" && pwd; }
 
 log()  { printf '[wgaio] %s\n' "$*"; }
 warn() { printf '[wgaio] 警告: %s\n' "$*" >&2; }
-die()  { printf '[wgaio] 错误: %s\n' "$*" >&2; exit "${2:-1}"; }
+die()  { printf '[wgaio] 错误: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 find_python() {
-  if command -v python3 >/dev/null 2>&1; then command -v python3
-  elif command -v python >/dev/null 2>&1; then command -v python
-  else die "未找到 python3/python, 请先安装 Python 3.9+"; fi
+  local candidates=("python3" "python") cmd
+  for cmd in "${candidates[@]}"; do
+    if command -v "$cmd" >/dev/null 2>&1 && "$cmd" -c "import sys" 2>/dev/null; then
+      command -v "$cmd"
+      return 0
+    fi
+  done
+  die "未找到可用的 python3/python, 请先安装 Python 3.9+"
 }
 
 core_py() {

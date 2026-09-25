@@ -35,6 +35,22 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("add", r.stdout)
 
+    def test_find_python_skips_broken_stub(self):
+        import shutil
+        import tempfile as _tf
+        stubdir = _tf.mkdtemp()
+        stub = Path(stubdir) / "python3"
+        stub.write_text("#!/bin/sh\nexit 49\n", encoding="utf-8")
+        stub.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = stubdir + os.pathsep + env.get("PATH", "")
+        env["WGAIO_ROOT"] = str(ROOT)
+        r = subprocess.run(["bash", "-c", '. lib/core.sh; find_python'],
+                           cwd=str(ROOT), capture_output=True, text=True,
+                           timeout=60, env=env, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(stubdir, r.stdout)  # 选中的不是假 stub
+
 
 if __name__ == "__main__":
     unittest.main()
