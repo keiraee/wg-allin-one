@@ -7,5 +7,8 @@
   "panel_bind": "10.66.66.1",
   "panel_port": 8888,
   "panel_token_hash": "",
-  "default_mode": "split"
+  "default_mode": "split",
+  "tls_cert": "",
+  "tls_key": "",
+  "tls_cn": ""
 }

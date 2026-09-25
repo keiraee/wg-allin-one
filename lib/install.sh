@@ -22,6 +22,26 @@ stage_files() {  # stage_files <dest>
   shopt -u nullglob
 }
 
+maybe_gen_tls() {
+  local cert key cn
+  cert="$(read_cfg tls_cert)"; key="$(read_cfg tls_key)"; cn="$(read_cfg tls_cn)"
+  [ -n "$cert" ] || return 0
+  [ -f "$cert" ] && return 0
+  command -v openssl >/dev/null 2>&1 || { warn "没有 openssl, 跳过 HTTPS(可稍后手动补证书)"; return 0; }
+  mkdir -p "$(dirname "$cert")"
+  openssl req -x509 -newkey rsa:2048 -keyout "$key" -out "$cert" -days 3650 -nodes \
+    -subj "/CN=${cn:-wgaio}" \
+    -addext "subjectAltName=DNS:${cn:-wgaio},IP:127.0.0.1" 2>/dev/null \
+    || { warn "证书生成失败, 面板将退回纯 HTTP"; return 0; }
+  chmod 600 "$key"
+  log "已生成自签 TLS 证书: $cert"
+}
+
+read_cfg() {
+  local py; py="$(find_python)"
+  "$py" -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));print(d.get('$1',''))" "$dest/config.json"
+}
+
 cmd_install() {
   if [ "${1:-}" = "--wizard-only" ]; then
     run_wizard
@@ -46,6 +66,8 @@ cmd_install() {
   cp -f "$ROOT/config.json" "$dest/config.json"
   chmod 600 "$dest/config.json"
 
+  maybe_gen_tls
+
   if [ "$dry" -eq 0 ]; then
     cat > /usr/local/bin/wgaio <<EOF
 #!/usr/bin/env bash
@@ -58,14 +80,26 @@ EOF
     fi
   fi
 
-  local py wg_port panel_port
+  local py wg_port panel_port tls_cert tls_cn scheme
   py="$(find_python)"
   wg_port="$("$py" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8"))["wg_port"])' "$dest/config.json")"
   panel_port="$("$py" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8"))["panel_port"])' "$dest/config.json")"
+  tls_cert="$("$py" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("tls_cert",""))' "$dest/config.json")"
+  tls_cn="$("$py" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("tls_cn",""))' "$dest/config.json")"
+
+  if [ -n "$tls_cert" ] && [ -f "$tls_cert" ]; then
+    scheme="https"
+  else
+    scheme="http"
+  fi
 
   printf '\n'
   log "====================================================="
   log " 重要: 请到云控制台安全组放行 UDP %s 端口!" "$wg_port"
-  log " 面板: http://<VPN隧道地址>:%s (令牌见上方)" "$panel_port"
+  if [ -n "$tls_cn" ]; then
+    log " 面板: %s://%s:%s (令牌见上方)" "$scheme" "$tls_cn" "$panel_port"
+  else
+    log " 面板: %s://<VPN隧道地址>:%s (令牌见上方)" "$scheme" "$panel_port"
+  fi
   log "=====================================================\n"
 }

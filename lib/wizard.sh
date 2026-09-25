@@ -48,11 +48,28 @@ run_wizard() {
   printf '  1) 仅 VPN 内(更安全)\n' >&2
   printf '  2) 公网直接访问(方便, 令牌登录)\n' >&2
   access_choice="$(ask '选 1 或 2' '1')"
+  local panel_bind="" https_choice="" domain="" tls_cn=""
   case "$access_choice" in
-    1) panel_bind="" ;;
+    1) ;;
     2) panel_bind="0.0.0.0" ;;
     *) die "无效选择, 请输入 1 或 2" ;;
   esac
+
+  if [ "$access_choice" = "2" ]; then
+    local ip_part
+    ip_part="${endpoint%%:*}"
+    domain="$(printf '%s' "$ip_part" | tr '.' '-').sslip.io"
+    tls_cn="$domain"
+    log "面板将使用自动域名管理: $domain"
+    printf 'HTTPS 加密(推荐; 浏览器会提示证书不受信, 点继续即可):\n' >&2
+    printf '  1) 生成自签证书(推荐)\n' >&2
+    printf '  2) 纯 HTTP\n' >&2
+    https_choice="$(ask '选 1 或 2' '1')"
+    case "$https_choice" in
+      1|2) ;;
+      *) die "无效选择, 请输入 1 或 2" ;;
+    esac
+  fi
 
   # 7. 面板端口
   panel_port="$(ask '面板端口' '8888')"
@@ -69,13 +86,20 @@ run_wizard() {
   esac
 
   local token hash
-  token="$("$py" -c 'import secrets;print(secrets.token_hex(24))')"
+  token="$("$py" -c 'import secrets,string as s; a=s.ascii_letters+s.digits; g=lambda n:"".join(secrets.choice(a) for _ in range(n)); print("wgaio-" + "-".join(g(5) for _ in range(4)))')"
   hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
+  local tls_cert="" tls_key=""
+  if [ "$https_choice" = "1" ]; then
+    tls_cert="/opt/wgaio/certs/wgaio.crt"
+    tls_key="/opt/wgaio/certs/wgaio.key"
+  fi
+
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
-        "$panel_bind" "$panel_port" "$def_mode" "$hash" <<'PY'
+        "$panel_bind" "$panel_port" "$def_mode" "$hash" \
+        "$tls_cert" "$tls_key" "$tls_cn" <<'PY'
 import json, os, re, sys
-vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash = sys.argv[1:]
+vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cert, tls_key, tls_cn = sys.argv[1:]
 if not re.match(r"^[^:]+:\d+$", endpoint):
     sys.exit("错误: endpoint 格式应为 IP或域名:端口")
 try:
@@ -94,6 +118,10 @@ cfg = {
     "panel_token_hash": thash,
     "default_mode": mode,
 }
+if tls_cert:
+    cfg["tls_cert"] = tls_cert
+    cfg["tls_key"] = tls_key
+    cfg["tls_cn"] = tls_cn
 root = os.environ.get("WGAIO_ROOT", ".")
 sys.path.insert(0, os.path.join(root, "lib"))
 try:
@@ -105,6 +133,14 @@ with open(os.path.join(root, "config.json"), "w", encoding="utf-8") as f:
     f.write(json.dumps(cfg, ensure_ascii=False, indent=2))
 PY
 
-  printf '\n===== 面板访问令牌(只显示这一次, 请立即保存) =====\n%s\n==============================================\n' "$token"
+  printf '\n===== 面板登录密码(只显示这一次, 请立即保存) =====\n%s\n=====================================================\n' "$token"
+
+  if [ "$access_choice" = "2" ]; then
+    if [ "$https_choice" = "1" ]; then
+      log "面板访问地址: https://${domain}:${panel_port}"
+    else
+      log "面板访问地址: http://${domain}:${panel_port}"
+    fi
+  fi
   log "配置已写入 config.json"
 }

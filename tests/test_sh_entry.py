@@ -46,7 +46,7 @@ class EntryTests(unittest.TestCase):
                            cwd=tmp, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("wgaio", r.stdout)
-        self.assertIn("0.1.0", r.stdout)
+        self.assertIn("0.2.0", r.stdout)
         # Must not have created any download artifacts
         self.assertFalse((Path(tmp) / "lib").exists())
 

@@ -37,6 +37,9 @@ DEFAULTS = {
     "panel_port": 8888,
     "panel_token_hash": "",
     "default_mode": "split",
+    "tls_cert": "",
+    "tls_key": "",
+    "tls_cn": "",
 }
 
 
@@ -882,8 +885,20 @@ def start_server(cfg):
 def serve(cfg=None):
     cfg = cfg or load_config()
     httpd = start_server(cfg)
+    tls_cert = cfg.get("tls_cert", "")
+    tls_key = cfg.get("tls_key", "")
+    if tls_cert and tls_key and Path(tls_cert).is_file() and Path(tls_key).is_file():
+        import ssl
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(tls_cert, tls_key)
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    scheme = "https" if (tls_cert and tls_key and Path(tls_cert).is_file()) else "http"
     host, port = httpd.server_address[0], httpd.server_address[1]
-    print("wgaio 面板已启动: http://%s:%d (令牌登录)" % (host, port), flush=True)
+    tls_cn = cfg.get("tls_cn", "")
+    if tls_cn:
+        print("wgaio 面板已启动: %s://%s:%d (令牌登录)" % (scheme, tls_cn, port), flush=True)
+    else:
+        print("wgaio 面板已启动: %s://%s:%d (令牌登录)" % (scheme, host, port), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
