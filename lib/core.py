@@ -93,6 +93,10 @@ def validate_config(cfg):
     for c in cfg.get("lan_cidrs") or []:
         if not CIDR_RE.match(str(c)):
             raise ApiError("lan_cidrs 含非法网段: %s" % c)
+        try:
+            cidr_bounds(str(c))
+        except ValueError:
+            raise ApiError("lan_cidrs 含非法网段: %s" % c)
     pp = cfg.get("panel_port")
     if type(pp) is not int or not 1 <= pp <= 65535:
         raise ApiError("panel_port 必须是 1-65535 的整数")

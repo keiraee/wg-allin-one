@@ -55,6 +55,9 @@ class ConfigTests(unittest.TestCase):
         p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "lan_cidrs": ["x"]})
         with self.assertRaises(core.ApiError):
             core.load_config(p)
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "lan_cidrs": ["999.1.1.0/24"]})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
 
     def test_missing_file_is_500(self):
         p = Path(self.tmp.name) / "nope.json"
