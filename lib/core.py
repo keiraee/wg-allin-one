@@ -305,6 +305,8 @@ def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive, peers=None, se
     endpoint = cfg.get("endpoint")
     if not endpoint:
         raise ApiError("配置缺少 endpoint", 500)
+    if not server_pub:
+        raise ApiError("读不到服务端公钥, 请确认 wg0 已配置私钥", 500)
     # 本期不做 IPv6。带上 ::/0 会把双栈设备的 IPv6 吸进没有 v6 地址的隧道。
     allowed = "0.0.0.0/0" if mode == "full" else split_allowed(cfg, peers, self_name)
     return (

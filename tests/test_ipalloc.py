@@ -67,6 +67,11 @@ class ClientConfTests(unittest.TestCase):
         self.assertIn("AllowedIPs = 0.0.0.0/0", text)
         self.assertNotIn("::/0", text)
 
+    def test_missing_server_pubkey(self):
+        with self.assertRaises(core.ApiError):
+            core.build_client_conf("PRIV", "10.66.66.9", CFG, mode="split",
+                                   server_pub="", keepalive=25)
+
 
 if __name__ == "__main__":
     unittest.main()
