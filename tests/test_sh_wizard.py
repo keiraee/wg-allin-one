@@ -116,8 +116,9 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["panel_bind"], "0.0.0.0")
-        self.assertIn("tls_cert", cfg)
-        self.assertTrue(len(cfg["tls_cert"]) > 0)
+        self.assertTrue(cfg["tls_cert"].endswith("/certs/wgaio.crt"), cfg["tls_cert"])
+        self.assertTrue(cfg["tls_key"].endswith("/certs/wgaio.key"), cfg["tls_key"])
+        self.assertNotIn("/opt/wgaio/", cfg["tls_cert"])
         self.assertIn("203-0-113-7.sslip.io", r.stdout)
 
     def test_wizard_public_no_https(self):

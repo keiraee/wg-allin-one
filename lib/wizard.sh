@@ -108,8 +108,8 @@ run_wizard() {
 
   local tls_cert="" tls_key=""
   if [ "$https_choice" = "1" ]; then
-    tls_cert="/opt/wgaio/certs/wgaio.crt"
-    tls_key="/opt/wgaio/certs/wgaio.key"
+    tls_cert="${WGAIO_ROOT}/certs/wgaio.crt"
+    tls_key="${WGAIO_ROOT}/certs/wgaio.key"
   fi
 
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
