@@ -125,5 +125,18 @@ class ServeFlagTests(unittest.TestCase):
         m.assert_called_once()
 
 
+class EphemeralPortTests(unittest.TestCase):
+    def test_two_servers_ephemeral_distinct(self):
+        cfg = {"panel_bind": "127.0.0.1", "panel_port": 0}
+        h1 = core.start_server(cfg)
+        h2 = core.start_server(cfg)
+        try:
+            self.assertNotEqual(h1.server_address[1], 0)
+            self.assertNotEqual(h1.server_address[1], h2.server_address[1])
+        finally:
+            h1.server_close()
+            h2.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

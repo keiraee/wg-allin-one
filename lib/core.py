@@ -867,7 +867,8 @@ class PanelHandler(BaseHTTPRequestHandler):
 
 def start_server(cfg):
     bind = cfg.get("panel_bind") or "127.0.0.1"
-    port = int(cfg.get("panel_port") or 8888)
+    port = cfg.get("panel_port")
+    port = 8888 if port is None else int(port)
     httpd = ThreadingHTTPServer((bind, port), PanelHandler)
     httpd.app_cfg = cfg
     return httpd
