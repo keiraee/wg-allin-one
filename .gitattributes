@@ -8,3 +8,4 @@
 *.md text eol=lf
 SHA256SUMS text eol=lf
 bin/* text eol=lf
+.gitattributes text eol=lf
