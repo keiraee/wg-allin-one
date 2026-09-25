@@ -89,6 +89,51 @@ class InstallTests(unittest.TestCase):
             if not existed:
                 cfg.unlink(missing_ok=True)
 
+    def test_render_wg0_conf_pure(self):
+        """render_wg0_conf is pure: takes args, outputs WireGuard config to stdout."""
+        script = (
+            'set -Eeuo pipefail; '
+            'ROOT="$(pwd)"; '
+            '. lib/core.sh; . lib/install.sh; '
+            'render_wg0_conf TESTKEY 10.66.66.0/24 51820'
+        )
+        r = subprocess.run(["bash", "-c", script],
+                           capture_output=True, text=True, timeout=60,
+                           cwd=str(ROOT), encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Address = 10.66.66.1/24", r.stdout)
+        self.assertIn("ListenPort = 51820", r.stdout)
+        self.assertIn("PrivateKey = TESTKEY", r.stdout)
+
+    def test_init_wg_hub_idempotent(self):
+        """init_wg_hub must NOT overwrite an existing wg0.conf."""
+        # Create temp file under project root so bash can find it via $(pwd)
+        tmpdir = ROOT / "_test_idem_tmp"
+        tmpdir.mkdir(exist_ok=True)
+        tmpconf = tmpdir / "wg0.conf"
+        tmpconf.write_text("existing content\n", encoding="utf-8")
+        try:
+            # Use $(pwd) so the path works regardless of Windows mount style
+            script = (
+                'set -Eeuo pipefail; '
+                'export WGAIO_WG_CONF="$(pwd)/_test_idem_tmp/wg0.conf"; '
+                'ROOT="$(pwd)"; export ROOT; '
+                '. lib/core.sh; . lib/install.sh; init_wg_hub'
+            )
+            r = subprocess.run(["bash", "-c", script],
+                               capture_output=True, text=True, timeout=60,
+                               cwd=str(ROOT), encoding="utf-8")
+            self.assertEqual(r.returncode, 0,
+                             "rc=%d stderr=%s" % (r.returncode, r.stderr))
+            content = tmpconf.read_text(encoding="utf-8")
+            self.assertEqual(content, "existing content\n",
+                             "wg0.conf was overwritten — idempotence broken")
+            combined = r.stdout + r.stderr
+            self.assertIn("已存在", combined)
+        finally:
+            tmpconf.unlink(missing_ok=True)
+            tmpdir.rmdir()
+
 
 if __name__ == "__main__":
     unittest.main()

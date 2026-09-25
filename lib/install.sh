@@ -5,6 +5,60 @@
 . "$ROOT/lib/core.sh"
 . "$ROOT/lib/wizard.sh"
 
+install_deps() {
+  log "安装系统依赖(wireguard / python3)..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq wireguard wireguard-tools python3
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y wireguard-tools python3
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y wireguard-tools python3
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache wireguard-tools python3
+  else
+    die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
+  fi
+  command -v wg >/dev/null 2>&1 || die "wireguard-tools 安装失败(wg 仍不可用)"
+}
+
+render_wg0_conf() {  # render_wg0_conf <private_key> <vpn_cidr> <wg_port> → stdout
+  local priv="$1" vpn_cidr="$2" wg_port="$3"
+  local py prefix gw_ip
+  py="$(find_python)"
+  prefix="${vpn_cidr#*/}"
+  gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$vpn_cidr")"
+  cat <<EOF
+[Interface]
+Address = ${gw_ip}/${prefix}
+ListenPort = ${wg_port}
+PrivateKey = ${priv}
+EOF
+}
+
+init_wg_hub() {
+  local conf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
+  if [ -f "$conf" ]; then
+    log "wg0.conf 已存在, 保持不动(不覆盖现有 WireGuard 配置)"
+    return 0
+  fi
+  command -v wg >/dev/null 2>&1 || die "wg 不可用, 请先安装 wireguard-tools"
+  install -d -m 700 "$(dirname "$conf")"
+  local priv
+  priv="$(wg genkey)"
+  render_wg0_conf "$priv" "$(read_cfg vpn_cidr)" "$(read_cfg wg_port)" > "$conf"
+  chmod 600 "$conf"
+  log "已生成 WireGuard 中枢配置: $conf"
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || warn "开启转发失败, 请手动设置 ip_forward=1"
+  printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-wgaio.conf 2>/dev/null || true
+  iptables -C FORWARD -i wg0 -o wg0 -j ACCEPT 2>/dev/null \
+    || iptables -A FORWARD -i wg0 -o wg0 -j ACCEPT 2>/dev/null \
+    || warn "iptables 规则添加失败(可能用 nft); 若设备互通异常请手动放行 wg0 转发"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now wg-quick@wg0 2>/dev/null \
+      || warn "wg-quick@wg0 启动失败, 可用 wgaio status 查看"
+  fi
+}
+
 stage_files() {  # stage_files <dest>
   local dest="$1"
   local src
@@ -66,12 +120,20 @@ cmd_install() {
   umask 077
   run_wizard
 
+  if [ "$dry" -eq 0 ]; then
+    install_deps
+  fi
+
   local dest="$WGAIO_ROOT"
   [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
 
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
   stage_files "$dest"
   sync_config "$dest"
+
+  if [ "$dry" -eq 0 ]; then
+    init_wg_hub
+  fi
 
   maybe_gen_tls
 
@@ -108,5 +170,10 @@ EOF
   else
     log " 面板: %s://<VPN隧道地址>:%s (令牌见上方)" "$scheme" "$panel_port"
   fi
-  log "=====================================================\n"
+  log "====================================================="
+
+  local gw_ip
+  gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$(read_cfg vpn_cidr)")"
+  log "WireGuard 中枢: wg0 (网关 ${gw_ip}) — 设备通过面板添加"
+  printf '\n'
 }
