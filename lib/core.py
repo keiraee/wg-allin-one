@@ -425,7 +425,8 @@ def wg_lock():
         finally:
             _unlock_fd(fh)
             fh.close()
-# 无 TTL/无登出: 已知缺口, T6 覆盖限流与会话清理
+# 滑动过期。进程重启后会话自然失效。
+SESSION_TTL = 12 * 3600
 _sessions = OrderedDict()
 
 
@@ -757,6 +758,11 @@ def main(argv=None):
         return 2
 
 
+def session_cookie(value, max_age):
+    # Secure 由 HTTPS 监听时另外加上。
+    return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d" % (value, max_age)
+
+
 def hash_token(plain):
     return hashlib.sha256((plain or "").encode("utf-8")).hexdigest()
 
@@ -838,10 +844,25 @@ class PanelHandler(BaseHTTPRequestHandler):
         s = self._session()
         if not s:
             return False
+        now = time.time()
         with _sessions_lock:
-            return s in _sessions
+            exp = _sessions.get(s)
+            if not exp or exp <= now:
+                _sessions.pop(s, None)
+                return False
+            _sessions[s] = now + SESSION_TTL
+            _sessions.move_to_end(s)
+            return True
 
     def _cfg(self):
+        path = getattr(self.server, "app_cfg_path", None)
+        if path:
+            try:
+                cfg = load_config(path)
+            except ApiError:
+                return self.server.app_cfg
+            self.server.app_cfg = cfg
+            return cfg
         return self.server.app_cfg
 
     def _handle(self, method):
@@ -860,13 +881,15 @@ class PanelHandler(BaseHTTPRequestHandler):
                     return
                 sess = secrets.token_hex(32)
                 with _sessions_lock:
-                    _sessions[sess] = None
+                    now = time.time()
+                    dead = [k for k, exp in _sessions.items() if not exp or exp <= now]
+                    for k in dead:
+                        _sessions.pop(k, None)
+                    _sessions[sess] = now + SESSION_TTL
                     while len(_sessions) > 1000:
                         _sessions.popitem(last=False)
                 self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
-                           extra={"Set-Cookie":
-                                  # 无 Secure: 面板是 VPN 内纯 HTTP(设计如此), 见设计文档 §8
-                                  "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/" % sess})
+                           extra={"Set-Cookie": session_cookie(sess, SESSION_TTL)})
                 return
             if parts[:1] == ["api"]:
                 if not self._authed():
@@ -888,6 +911,16 @@ class PanelHandler(BaseHTTPRequestHandler):
     # GET    /api/peers/<name>/conf      -> text/plain attachment
     def _api(self, method, parts, u):
         cfg = self._cfg()
+        if parts == ["api", "logout"] and method == "POST":
+            if self.headers.get("Content-Length"):
+                self._body()
+            s = self._session()
+            with _sessions_lock:
+                if s:
+                    _sessions.pop(s, None)
+            self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
+                       extra={"Set-Cookie": session_cookie("", 0)})
+            return
         if parts == ["api", "status"] and method == "GET":
             self._json(full_status(cfg))
             return
@@ -948,6 +981,7 @@ def start_server(cfg):
 def serve(cfg=None):
     cfg = cfg or load_config()
     httpd = start_server(cfg)
+    httpd.app_cfg_path = CONFIG_PATH
     tls_cert = cfg.get("tls_cert", "")
     tls_key = cfg.get("tls_key", "")
     if tls_cert and tls_key and Path(tls_cert).is_file() and Path(tls_key).is_file():

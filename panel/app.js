@@ -78,6 +78,16 @@ async function tryLogin() {
     $("login-err").textContent = "登录失败: " + e.message;
   }
 }
+$("btn-logout").addEventListener("click", async () => {
+  try {
+    await api("/api/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch (e) { /* 未登录时接口会返回 401 */ }
+  showLogin();
+});
 $("btn-login").addEventListener("click", tryLogin);
 $("login-token").addEventListener("keydown", (e) => {
   if (e.key === "Enter") tryLogin();

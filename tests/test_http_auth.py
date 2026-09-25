@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -92,7 +93,37 @@ class AuthTests(HttpTestBase):
     def test_login_cookie_httponly(self):
         st, hd, body = self.req("POST", "/api/login", {"token": "topsecret"})
         self.assertEqual(st, 200)
-        self.assertIn("HttpOnly", hd.get("Set-Cookie", ""))
+        cookie = hd.get("Set-Cookie", "")
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("Max-Age=%d" % core.SESSION_TTL, cookie)
+
+    def test_session_expires(self):
+        cookie = self.login()
+        token = cookie.split("=", 1)[1]
+        with core._sessions_lock:
+            core._sessions[token] = time.time() - 1
+        st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 401)
+
+    def test_logout_revokes_session(self):
+        cookie = self.login()
+        st, hd, body = self.req("POST", "/api/logout", {}, cookie=cookie)
+        self.assertEqual(st, 200, body)
+        self.assertIn("Max-Age=0", hd.get("Set-Cookie", ""))
+        st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 401)
+
+    def test_login_rereads_token_hash(self):
+        path = Path(self.tmp.name) / "config.json"
+        fresh = dict(self.cfg)
+        fresh["panel_port"] = 8888
+        fresh["panel_token_hash"] = core.hash_token("newsecret")
+        path.write_text(json.dumps(fresh), encoding="utf-8")
+        self.httpd.app_cfg_path = path
+        st, hd, body = self.req("POST", "/api/login", {"token": "topsecret"})
+        self.assertEqual(st, 401, body)
+        st, hd, body = self.req("POST", "/api/login", {"token": "newsecret"})
+        self.assertEqual(st, 200, body)
 
     def test_csrf_requires_json(self):
         st, hd, body = self.req("POST", "/api/login", {"token": "topsecret"},
