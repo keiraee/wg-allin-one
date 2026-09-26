@@ -90,7 +90,9 @@ table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th, td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; white-space: nowrap; }
 th { color: var(--muted); font-weight: 400; background: var(--surface); }
 tr:hover td { background: #fafafa; }
-td.ops { display: flex; gap: 6px; }
+td.ops { display: flex; gap: 6px; flex-wrap: wrap; white-space: normal; }
+tr.disabled td { opacity: 0.55; }
+#qr-img { width: 220px; height: auto; align-self: center; background: #fff; image-rendering: pixelated; }
 .mono { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 
@@ -99,6 +101,7 @@ td.ops { display: flex; gap: 6px; }
 .dot.ok    { background: var(--ok);    border-color: var(--ok); }
 .dot.stale { background: var(--warn);  border-color: var(--warn); }
 .dot.off   { background: var(--off); }
+.dot.disabled { background: var(--off); }
 .dot.up    { background: var(--info);  border-color: var(--info); }
 .dot.accent{ background: var(--accent); border-color: var(--accent-dark); }
 

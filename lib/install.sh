@@ -89,7 +89,7 @@ stage_files() {  # stage_files <dest>
   fi
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
   shopt -s nullglob
-  cp -f "$ROOT/lib/core.py" "$dest/lib/core.py"
+  cp -f "$ROOT"/lib/*.py "$dest/lib/"
   cp -f "$ROOT"/lib/*.sh "$dest/lib/"
   cp -f "$ROOT"/panel/* "$dest/panel/"
   cp -f "$ROOT/wgaio.sh" "$dest/wgaio.sh"

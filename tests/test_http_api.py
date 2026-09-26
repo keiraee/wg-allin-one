@@ -110,6 +110,33 @@ class ApiTests(ApiTestBase):
         st, hd, body = self.req("POST", "/api/peers", "not-dict")
         self.assertIn(st, (400, 415))
 
+    def test_qr_disable_rotate(self, m_gen, m_pub, m_set):
+        m_gen.side_effect = [("PRIV", "PUB"), ("PRIV2", "PUB2")]
+        st, hd, body = self.req("POST", "/api/peers", {"name": "phone"})
+        self.assertEqual(st, 200, body)
+        st, hd, body = self.req("GET", "/api/peers/phone/qr")
+        self.assertEqual(st, 200, body[:80])
+        self.assertIn("image/svg+xml", hd.get("Content-Type", ""))
+        self.assertTrue(body.startswith("<svg"))
+        self.assertIn("Cache-Control", hd)
+        st, hd, body = self.req("POST", "/api/peers/phone/disable")
+        self.assertEqual(st, 200, body)
+        peers = json.loads(self.req("GET", "/api/status")[2])["peers"]
+        phone = [p for p in peers if p["name"] == "phone"][0]
+        self.assertTrue(phone["disabled"])
+        self.assertEqual(phone["ip"], "10.66.66.2")
+        st, hd, body = self.req("POST", "/api/peers/phone/rotate")
+        data = json.loads(body)
+        self.assertEqual(st, 200, body)
+        self.assertIn("PrivateKey = PRIV2", data["conf"])
+        self.assertEqual(data["peer"]["ip"], "10.66.66.2")
+        self.assertTrue(data["peer"]["disabled"])
+        st, hd, body = self.req("POST", "/api/peers/phone/enable")
+        self.assertEqual(st, 200, body)
+        peers = core.parse_conf()[1]
+        self.assertEqual(peers[0]["pubkey"], "PUB2")
+        self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.2/32"])
+
 
 if __name__ == "__main__":
     unittest.main()

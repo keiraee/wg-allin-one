@@ -179,10 +179,11 @@ usage() {
   wgaio                   打开管理菜单(终端里直接进入)
   install                 向导式安装(中文问答)
   version                 显示版本
-  user add|del|edit|list|show   设备管理
+  user add|del|edit|list|show|disable|enable|rotate   设备管理
   panel start|stop|restart|status|install  面板服务
   status                  总览(含面板完整地址)
   cert                    重新申请 Let's Encrypt 证书
+  backup [restore 文件]   备份或恢复 config.json、clients 和 wg0.conf
   logs [行数]             面板日志
   upgrade                 按已记住的轨道升级(稳定版=Release, main=抢先试用)
   verify [--fix]          校验本地文件是否被改动, --fix 从轨道重新下载修复
@@ -213,7 +214,7 @@ case "$cmd" in
   rollback) shift; . "$ROOT/lib/upgrade.sh"; cmd_rollback "$@" ;;
   verify) shift; . "$ROOT/lib/upgrade.sh"; cmd_verify "$@" ;;
   cert) shift; . "$ROOT/lib/install.sh"; cmd_cert "$@" ;;
-  install|upgrade|uninstall|panel|status|logs)
+  install|upgrade|uninstall|panel|status|logs|backup)
     mod="$ROOT/lib/${cmd}.sh"
     [ -f "$mod" ] || die "模块未安装: $cmd"
     shift; . "$mod"; "cmd_${cmd}" "$@" ;;

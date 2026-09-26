@@ -126,6 +126,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((dest / "bin" / "wgaio").exists())
         self.assertTrue((dest / "SHA256SUMS").exists())
         self.assertTrue((dest / "lib" / "core.py").exists())
+        self.assertTrue((dest / "lib" / "qr.py").exists())
+        self.assertTrue((dest / "lib" / "backup.sh").exists())
         self.assertTrue((dest / "wgaio.sh").exists())
 
     def test_sync_config_inplace_no_crash(self):

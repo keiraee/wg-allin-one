@@ -11,6 +11,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import traceback
@@ -623,7 +624,8 @@ def add_peer(name, ip, dns, keepalive, mode, routes, cfg):
         cfg_run["client_dns"] = use_dns
         conf_text = build_client_conf(priv, ip, cfg_run, mode, server_pubkey(), keepalive, peers, name)
         meta = {"name": name, "pubkey": pub, "ip": ip, "mode": mode,
-                "dns": use_dns, "keepalive": keepalive, "routes": extra_routes}
+                "dns": use_dns, "keepalive": keepalive, "routes": extra_routes,
+                "disabled": False}
         # 先落私钥。写 wg0.conf 失败就删掉，避免对等端已写入但私钥丢失。
         save_client(name, conf_text, meta)
         try:
@@ -642,7 +644,15 @@ def remove_peer(name, force=False, cfg=None):
         iface_lines, peers = parse_conf()
         peer = find_peer(peers, name)
         if not peer:
-            raise ApiError("找不到设备: %s" % name, 404)
+            meta = load_client_meta(name)
+            if not meta:
+                raise ApiError("找不到设备: %s" % name, 404)
+            routes = [str(r) for r in (meta.get("routes") or [])]
+            if routes and not force:
+                raise ApiError("该设备是内网网关(带路由 %s), 删除会断掉进内网; 确认请加 --force"
+                               % ", ".join(routes), 409)
+            drop_client(name)
+            return {"removed": name}
         ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
         if is_gateway(peer, ip) and not force:
             extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
@@ -657,6 +667,60 @@ def remove_peer(name, force=False, cfg=None):
         return {"removed": name}
 
 
+def write_meta(name, meta):
+    Path(CLIENTS).mkdir(parents=True, exist_ok=True)
+    _, meta_p = client_paths(name)
+    meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    meta_p.chmod(0o600)
+
+
+def _update_disabled_peer(name, new_name, ip, dns, keepalive, mode, routes, cfg):
+    """改一份已经从 wg0 拿掉的设备。地址和密钥不动接口，只改备份。"""
+    meta = load_client_meta(name)
+    if not meta:
+        raise ApiError("找不到设备: %s" % name, 404)
+    priv = read_priv(name)
+    old_name = name
+    if new_name and new_name != name:
+        new_name = normalize_name(new_name)
+        if find_peer(parse_conf()[1], new_name) or load_client_meta(new_name):
+            raise ApiError("设备名已存在: %s" % new_name)
+        meta["name"] = new_name
+        name = new_name
+    cur_ip = str(meta.get("ip") or "")
+    if ip:
+        new_ip = normalize_ip(ip, cfg, used_ips(), current=cur_ip)
+        meta["ip"] = new_ip
+        cur_ip = new_ip
+    if routes is not None:
+        meta["routes"] = normalize_routes(routes)
+    if keepalive is not None:
+        try:
+            meta["keepalive"] = max(0, min(120, int(keepalive)))
+        except (TypeError, ValueError):
+            pass
+    if mode:
+        if mode not in ("split", "full"):
+            raise ApiError("mode 只能是 split/full")
+        meta["mode"] = mode
+    if dns:
+        meta["dns"] = normalize_dns(dns)
+    meta["disabled"] = True
+    if priv and cur_ip:
+        cfg_run = dict(cfg)
+        if meta.get("dns"):
+            cfg_run["client_dns"] = meta["dns"]
+        text = build_client_conf(
+            priv, cur_ip, cfg_run, meta.get("mode") or "split", server_pubkey(),
+            meta.get("keepalive", 25), parse_conf()[1], name)
+        save_client(name, text, meta)
+    else:
+        write_meta(name, meta)
+    if old_name != name:
+        drop_client(old_name)
+    return meta
+
+
 def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
                 mode=None, routes=None, cfg=None):
     cfg = cfg or load_config()
@@ -664,9 +728,10 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
         iface_lines, peers = parse_conf()
         peer = find_peer(peers, name)
         if not peer:
-            raise ApiError("找不到设备: %s" % name, 404)
+            return _update_disabled_peer(name, new_name, ip, dns, keepalive,
+                                         mode, routes, cfg)
         meta = load_client_meta(name) or {"name": name, "pubkey": peer["pubkey"],
-                                          "routes": [], "ip": ""}
+                                          "routes": [], "ip": "", "disabled": False}
         priv = read_priv(name)
         old_name = name
 
@@ -705,6 +770,7 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             meta["mode"] = mode
         if dns:
             meta["dns"] = normalize_dns(dns)
+        meta["disabled"] = False
 
         write_conf(iface_lines, peers)
         wg_set_peer(peer["pubkey"], allowed_ips=", ".join(peer["allowed_ips"]),
@@ -729,6 +795,133 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             drop_client(old_name)
         refresh_client_confs(cfg, peers)
         return meta
+
+
+def set_peer_active(name, active, cfg, force=False):
+    """停用只从隧道拿掉，IP 和私钥都留着。启用按原地址加回去。"""
+    name = normalize_name(name)
+    cfg = cfg or load_config()
+    with wg_lock():
+        iface_lines, peers = parse_conf()
+        peer = find_peer(peers, name)
+        meta = load_client_meta(name)
+        if active:
+            if peer:
+                if meta and meta.get("disabled"):
+                    meta["disabled"] = False
+                    write_meta(name, meta)
+                return meta or {"name": name, "disabled": False}
+            if not meta:
+                raise ApiError("找不到设备: %s" % name, 404)
+            ip = str(meta.get("ip") or "")
+            pub = str(meta.get("pubkey") or "")
+            if not ip or not pub:
+                raise ApiError("停用记录不完整，不能启用")
+            routes = [str(r) for r in (meta.get("routes") or [])]
+            try:
+                ka = max(0, min(120, int(meta.get("keepalive") or 0)))
+            except (TypeError, ValueError):
+                ka = 0
+            peer = {"name": name, "pubkey": pub,
+                    "allowed_ips": ["%s/32" % ip] + routes,
+                    "keepalive": ka, "extra": []}
+            priv = read_priv(name)
+            text = None
+            if priv:
+                cfg_run = dict(cfg)
+                if meta.get("dns"):
+                    cfg_run["client_dns"] = meta["dns"]
+                text = build_client_conf(
+                    priv, ip, cfg_run, meta.get("mode") or "split", server_pubkey(),
+                    meta.get("keepalive", 25), peers + [peer], name)
+            peers.append(peer)
+            meta["disabled"] = False
+            write_conf(iface_lines, peers)
+            wg_set_peer(pub, allowed_ips=", ".join(peer["allowed_ips"]), keepalive=ka)
+            if text:
+                save_client(name, text, meta)
+            else:
+                write_meta(name, meta)
+            refresh_client_confs(cfg, peers)
+            return meta
+        if not peer:
+            if meta and meta.get("disabled"):
+                return meta
+            raise ApiError("找不到设备: %s" % name, 404)
+        ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
+        if is_gateway(peer, ip) and not force:
+            extras = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
+            raise ApiError("该设备是内网网关(带路由 %s), 停用会断掉进内网; 确认请加 --force"
+                           % ", ".join(extras), 409)
+        routes = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
+        if not meta:
+            meta = {"name": name, "pubkey": peer["pubkey"], "ip": ip,
+                    "mode": "split", "routes": routes,
+                    "keepalive": peer.get("keepalive") or 0, "dns": ""}
+        meta["pubkey"] = peer["pubkey"]
+        meta["ip"] = ip
+        meta["routes"] = routes
+        meta["keepalive"] = peer.get("keepalive") or meta.get("keepalive") or 0
+        meta["disabled"] = True
+        peers.remove(peer)
+        write_conf(iface_lines, peers)
+        wg_set_peer(peer["pubkey"], remove=True)
+        write_meta(name, meta)
+        refresh_client_confs(cfg, peers)
+        return meta
+
+
+def rotate_peer(name, cfg):
+    """换一对密钥，IP、流量模式和路由都不改。停用中的设备不会被重新加回隧道。"""
+    name = normalize_name(name)
+    cfg = cfg or load_config()
+    with wg_lock():
+        iface_lines, peers = parse_conf()
+        peer = find_peer(peers, name)
+        meta = load_client_meta(name)
+        priv = read_priv(name)
+        if not peer and not meta:
+            raise ApiError("找不到设备: %s" % name, 404)
+        if not priv:
+            raise ApiError("没有这份设备的私钥，不能更换密钥")
+        old_pub = peer["pubkey"] if peer else str(meta.get("pubkey") or "")
+        new_priv, new_pub = gen_keypair()
+        if not meta:
+            ip = peer["allowed_ips"][0].split("/")[0] if peer["allowed_ips"] else ""
+            routes = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
+            meta = {"name": name, "ip": ip, "mode": cfg.get("default_mode") or "split",
+                    "dns": cfg.get("client_dns") or "1.1.1.1",
+                    "keepalive": peer.get("keepalive") or 25, "routes": routes,
+                    "disabled": False}
+        meta["pubkey"] = new_pub
+        meta["disabled"] = not bool(peer)
+        ip = str(meta.get("ip") or "")
+        if peer and peer.get("allowed_ips"):
+            ip = peer["allowed_ips"][0].split("/")[0]
+            meta["ip"] = ip
+            meta["routes"] = [a for a in peer["allowed_ips"] if a != "%s/32" % ip]
+            meta["keepalive"] = peer.get("keepalive") or meta.get("keepalive") or 0
+        cfg_run = dict(cfg)
+        if meta.get("dns"):
+            cfg_run["client_dns"] = meta["dns"]
+        preview = list(peers)
+        if peer:
+            preview = [dict(p, pubkey=new_pub) if p is peer else p for p in peers]
+        text = build_client_conf(
+            new_priv, ip, cfg_run, meta.get("mode") or "split", server_pubkey(),
+            meta.get("keepalive", 25), preview, name)
+        if peer:
+            peer["pubkey"] = new_pub
+            write_conf(iface_lines, peers)
+            if old_pub:
+                wg_set_peer(old_pub, remove=True)
+            wg_set_peer(new_pub, allowed_ips=", ".join(peer["allowed_ips"]),
+                        keepalive=peer.get("keepalive") or 0)
+        save_client(name, text, meta)
+        if peer:
+            refresh_client_confs(cfg, peers)
+            text = client_paths(name)[0].read_text(encoding="utf-8")
+        return meta, text
 
 
 def live_status():
@@ -797,7 +990,48 @@ def list_peers(live=None):
             "is_gateway": is_gateway(p, ip),
             "has_client": has_client,
             "mode": (meta or {}).get("mode", "split"),
+            "disabled": False,
         })
+    seen = {row["name"] for row in rows}
+    if Path(CLIENTS).exists():
+        for meta_p in sorted(Path(CLIENTS).glob("*.json")):
+            if meta_p.is_symlink():
+                continue
+            try:
+                stored = json.loads(meta_p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, UnicodeError):
+                continue
+            if not isinstance(stored, dict) or not stored.get("disabled"):
+                continue
+            name = str(stored.get("name") or meta_p.stem)
+            try:
+                normalize_name(name)
+            except ApiError:
+                continue
+            if name in seen:
+                continue
+            ip = str(stored.get("ip") or "")
+            routes = [str(r) for r in (stored.get("routes") or [])]
+            try:
+                has_client = client_paths(name)[0].exists()
+            except ApiError:
+                has_client = False
+            rows.append({
+                "name": name,
+                "pubkey": str(stored.get("pubkey") or ""),
+                "ip": ip,
+                "allowed_ips": (["%s/32" % ip] if ip else []) + routes,
+                "keepalive": stored.get("keepalive") or 0,
+                "last_handshake": 0,
+                "rx": 0,
+                "tx": 0,
+                "state": "disabled",
+                "is_gateway": bool(routes),
+                "has_client": has_client,
+                "mode": stored.get("mode") or "split",
+                "disabled": True,
+            })
+            seen.add(name)
     return rows
 
 
@@ -828,6 +1062,185 @@ def full_status(cfg):
         "peers": list_peers(live=live),
         "now": int(time.time()),
     }
+
+
+def backup_root():
+    return CONFIG_PATH.parent / "backups"
+
+
+def _add_backup_file(tar, src, arcname):
+    src = Path(src)
+    if not src.is_file() or src.is_symlink():
+        return
+    tar.add(src, arcname=arcname, recursive=False)
+
+
+def create_backup(keep_days=None):
+    """打包 config.json、clients 和 wg0.conf。默认只留 14 天。"""
+    if keep_days is None:
+        raw = os.environ.get("WGAIO_BACKUP_DAYS", "14")
+        try:
+            keep_days = int(raw)
+        except (TypeError, ValueError):
+            keep_days = 14
+    keep_days = max(0, int(keep_days))
+    dest_dir = backup_root()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path = dest_dir / ("wgaio-data-%s.tar.gz" % stamp)
+    n = 1
+    while path.exists():
+        n += 1
+        path = dest_dir / ("wgaio-data-%s-%d.tar.gz" % (stamp, n))
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tarfile.open(tmp, "w:gz") as tar:
+            _add_backup_file(tar, CONFIG_PATH, "config.json")
+            _add_backup_file(tar, Path(WG_CONF), "wg0.conf")
+            clients = Path(CLIENTS)
+            if clients.is_dir() and not clients.is_symlink():
+                info = tarfile.TarInfo("clients")
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o700
+                tar.addfile(info)
+                for child in sorted(clients.iterdir()):
+                    if child.is_symlink() or not child.is_file():
+                        continue
+                    if child.suffix not in (".conf", ".json"):
+                        continue
+                    stem = child.name[:-len(child.suffix)]
+                    try:
+                        normalize_name(stem)
+                    except ApiError:
+                        continue
+                    _add_backup_file(tar, child, "clients/%s" % child.name)
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    if keep_days > 0:
+        cutoff = time.time() - keep_days * 86400
+        for old in dest_dir.glob("wgaio-data-*.tar.gz"):
+            try:
+                if old.resolve() == path.resolve():
+                    continue
+                if old.stat().st_mtime < cutoff:
+                    old.unlink()
+            except OSError:
+                pass
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+def _backup_members(tar):
+    found = []
+    saw_clients = False
+    for member in tar.getmembers():
+        raw = member.name.replace("\\", "/")
+        if not raw or raw.startswith("/") or ".." in raw.split("/"):
+            raise ApiError("备份里有非法路径: %s" % member.name)
+        parts = [p for p in raw.split("/") if p and p != "."]
+        name = "/".join(parts)
+        if not name:
+            raise ApiError("备份里有非法路径: %s" % member.name)
+        if member.issym() or member.islnk():
+            raise ApiError("备份里有链接，已拒绝: %s" % member.name)
+        if member.isdir():
+            if name == "clients":
+                saw_clients = True
+                continue
+            raise ApiError("备份里有不认识的目录: %s" % member.name)
+        if not member.isfile():
+            raise ApiError("备份里有不支持的条目: %s" % member.name)
+        if name in ("config.json", "wg0.conf"):
+            found.append((member, name))
+            continue
+        if len(parts) == 2 and parts[0] == "clients" and parts[1].endswith((".conf", ".json")):
+            stem = parts[1].rsplit(".", 1)[0]
+            try:
+                normalize_name(stem)
+            except ApiError:
+                raise ApiError("备份里的设备名不合法: %s" % name)
+            saw_clients = True
+            found.append((member, name))
+            continue
+        raise ApiError("备份里有不认识的文件: %s" % name)
+    if not found and not saw_clients:
+        raise ApiError("备份是空的")
+    return found, saw_clients
+
+
+def _write_private(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(path)
+
+
+def _try_restart_units():
+    if os.name != "posix":
+        return
+    for unit in ("wg-quick@wg0", "wgaio-panel"):
+        try:
+            subprocess.run(["systemctl", "try-restart", unit],
+                           capture_output=True, timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
+def restore_backup(archive, restart=True):
+    archive = Path(archive)
+    if not archive.is_file() or archive.is_symlink():
+        raise ApiError("找不到备份: %s" % archive, 404)
+    try:
+        tar = tarfile.open(archive, "r:gz")
+    except (tarfile.TarError, OSError):
+        raise ApiError("不是有效的备份包")
+    with tar:
+        members, saw_clients = _backup_members(tar)
+        blobs = {}
+        for member, name in members:
+            handle = tar.extractfile(member)
+            if handle is None:
+                raise ApiError("读不到备份条目: %s" % name)
+            data = handle.read(2 * 1024 * 1024 + 1)
+            if len(data) > 2 * 1024 * 1024:
+                raise ApiError("备份条目过大: %s" % name)
+            blobs[name] = data
+    if "config.json" in blobs:
+        _write_private(CONFIG_PATH, blobs["config.json"])
+    if "wg0.conf" in blobs:
+        _write_private(Path(WG_CONF), blobs["wg0.conf"])
+    if saw_clients:
+        Path(CLIENTS).mkdir(parents=True, exist_ok=True)
+        keep = {name.split("/", 1)[1] for name in blobs if name.startswith("clients/")}
+        if Path(CLIENTS).is_dir() and not Path(CLIENTS).is_symlink():
+            for child in list(Path(CLIENTS).iterdir()):
+                if child.is_symlink() or not child.is_file():
+                    continue
+                if child.suffix not in (".conf", ".json"):
+                    continue
+                try:
+                    normalize_name(child.name[:-len(child.suffix)])
+                except ApiError:
+                    continue
+                if child.name not in keep:
+                    child.unlink()
+        for name, data in blobs.items():
+            if name.startswith("clients/"):
+                _write_private(Path(CLIENTS) / name.split("/", 1)[1], data)
+    if restart:
+        _try_restart_units()
+    return archive
 
 
 def main(argv=None):
@@ -863,6 +1276,20 @@ def main(argv=None):
     p_show = usub.add_parser("show", help="导出 .conf")
     p_show.add_argument("name")
 
+    p_off = usub.add_parser("disable", help="停用设备，保留地址和私钥")
+    p_off.add_argument("name")
+    p_off.add_argument("--force", action="store_true")
+    p_on = usub.add_parser("enable", help="启用已停用的设备")
+    p_on.add_argument("name")
+    p_rot = usub.add_parser("rotate", help="更换密钥，IP 不变")
+    p_rot.add_argument("name")
+
+    bak = sub.add_parser("backup", help="备份或恢复 config.json、clients 和 wg0.conf")
+    bsub = bak.add_subparsers(dest="bcmd", required=False)
+    bsub.add_parser("create", help="打一个数据包")
+    p_res = bsub.add_parser("restore", help="从数据包恢复")
+    p_res.add_argument("path")
+
     args = parser.parse_args(argv)
     if args.serve:
         try:
@@ -874,6 +1301,13 @@ def main(argv=None):
     if not args.cmd:
         parser.error("需要子命令或 --serve")
     try:
+        if args.cmd == "backup":
+            if getattr(args, "bcmd", None) == "restore":
+                restore_backup(args.path)
+                print("已从备份恢复: %s" % args.path)
+            else:
+                print(create_backup())
+            return 0
         cfg = load_config()
         if args.ucmd == "add":
             meta, _ = add_peer(args.name, args.ip, args.dns, args.ka,
@@ -893,6 +1327,15 @@ def main(argv=None):
                 print("%-15s %-14s %-5s%s" % (r["name"], r["ip"], r["state"], gw))
         elif args.ucmd == "show":
             print(show_conf(args.name), end="")
+        elif args.ucmd == "disable":
+            set_peer_active(args.name, False, cfg, force=args.force)
+            print("已停用 %s（地址和私钥都还在）" % args.name)
+        elif args.ucmd == "enable":
+            set_peer_active(args.name, True, cfg)
+            print("已启用 %s" % args.name)
+        elif args.ucmd == "rotate":
+            meta, _conf = rotate_peer(args.name, cfg)
+            print("已更换 %s 的密钥，旧配置不能再用" % meta["name"])
         return 0
     except ApiError as e:
         print("错误: %s" % e, file=sys.stderr)
@@ -1101,6 +1544,10 @@ class PanelHandler(BaseHTTPRequestHandler):
     # PATCH  /api/peers/<name>           <- {new_name?, ip?, dns?, keepalive?, mode?, routes?} -> {ok, peer}
     # DELETE /api/peers/<name>[?force=1] -> {ok, peer{name}, removed}   (网关无 force 时 409)
     # GET    /api/peers/<name>/conf      -> text/plain attachment
+    # GET    /api/peers/<name>/qr        -> image/svg+xml
+    # POST   /api/peers/<name>/disable[?force=1]
+    # POST   /api/peers/<name>/enable
+    # POST   /api/peers/<name>/rotate    -> {ok, peer, conf}
     def _api(self, method, parts, u):
         cfg = self._cfg()
         if parts == ["api", "logout"] and method == "POST":
@@ -1143,6 +1590,26 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send(200, text, "text/plain; charset=utf-8",
                        {"Content-Disposition":
                         'attachment; filename="%s.conf"' % fname})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "peers"] and parts[3] == "qr" \
+                and method == "GET":
+            import qr
+            svg = qr.qr_svg(show_conf(parts[2]))
+            self._send(200, svg, "image/svg+xml")
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "peers"] and method == "POST" \
+                and parts[3] in ("disable", "enable", "rotate"):
+            if parts[3] == "disable":
+                force = parse_qs(u.query).get("force", ["0"])[0] == "1"
+                meta = set_peer_active(parts[2], False, cfg, force=force)
+                self._json({"ok": True, "peer": meta})
+                return
+            if parts[3] == "enable":
+                meta = set_peer_active(parts[2], True, cfg)
+                self._json({"ok": True, "peer": meta})
+                return
+            meta, conf_text = rotate_peer(parts[2], cfg)
+            self._json({"ok": True, "peer": meta, "conf": conf_text})
             return
         raise ApiError("接口不存在", 404)
 

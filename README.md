@@ -37,10 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 wgaio                  管理菜单
 wgaio install
 wgaio version
-wgaio user add|del|edit|list|show
+wgaio user add|del|edit|list|show|disable|enable|rotate
 wgaio panel start|stop|restart|status|install
 wgaio status
+wgaio cert
 wgaio logs
+wgaio backup
+wgaio backup restore 文件
 wgaio upgrade
 wgaio verify [--fix]
 wgaio rollback
@@ -49,6 +52,7 @@ wgaio uninstall
 
 `verify` 校验本地程序文件是否被改动；`verify --fix` 按当前轨道重新下载修复。
 `rollback` 恢复程序文件到最近快照，**不会覆盖 `config.json`**（升级也从不改配置）。
+`backup` 打包的是 `config.json`、`clients/` 和 `wg0.conf`，和升级快照分开。停用设备会留着原来的地址和私钥；更换密钥不改 IP，旧的客户端配置随之作废。面板里的二维码含私钥，不要截图外传。
 
 ## 公网管理
 
@@ -72,6 +76,6 @@ python -m unittest discover tests -v   # 需要 bash 与 sha256sum
 
 改动发版文件(wgaio.sh/bin/lib/panel)后需重新生成 SHA256SUMS:
 ```bash
-python -c "from pathlib import Path; ns='wgaio.sh bin/wgaio lib/core.sh lib/core.py lib/wizard.sh lib/install.sh lib/user.sh lib/panel.sh lib/upgrade.sh lib/uninstall.sh lib/status.sh lib/logs.sh lib/menu.sh panel/index.html panel/style.css panel/app.js'.split(); [Path(n).write_bytes(Path(n).read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')) for n in ns]"
-sha256sum wgaio.sh bin/wgaio lib/*.sh lib/core.py panel/index.html panel/style.css panel/app.js > SHA256SUMS
+python -c "from pathlib import Path; ns='wgaio.sh bin/wgaio lib/core.sh lib/core.py lib/qr.py lib/wizard.sh lib/install.sh lib/user.sh lib/panel.sh lib/upgrade.sh lib/uninstall.sh lib/status.sh lib/logs.sh lib/menu.sh lib/backup.sh panel/index.html panel/style.css panel/app.js'.split(); [Path(n).write_bytes(Path(n).read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')) for n in ns]"
+sha256sum wgaio.sh bin/wgaio lib/*.sh lib/*.py panel/index.html panel/style.css panel/app.js > SHA256SUMS
 ```

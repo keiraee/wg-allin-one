@@ -35,7 +35,7 @@ function fmtAgo(ts, now) {
   if (d < 86400) return Math.floor(d / 3600) + " 小时前";
   return Math.floor(d / 86400) + " 天前";
 }
-const STATE_TXT = { ok: "已连接", stale: "掉线", off: "离线" };
+const STATE_TXT = { ok: "已连接", stale: "掉线", off: "离线", disabled: "已停用" };
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
@@ -112,6 +112,12 @@ document.addEventListener("click", (e) => {
   else if (act === "save") saveEdit(name);
   else if (act === "copy") copyConf();
   else if (act === "close") closeModal();
+  else if (act === "qr") showPeerQr(name);
+  else if (act === "disable") disablePeer(name, btn.dataset.gw === "1");
+  else if (act === "disable-force") doDisable(name, true);
+  else if (act === "enable") doEnable(name);
+  else if (act === "rotate") confirmRotate(name);
+  else if (act === "rotate-go") doRotate(name);
 });
 
 function extraRoutesOf(p) {
@@ -127,7 +133,10 @@ function renderRows(st) {
   tb.innerHTML = st.peers.map((p) => {
     const gw = p.is_gateway ? ' <span class="dot accent" title="内网网关"></span>' : "";
     const routes = extraRoutesOf(p) || "—";
-    return `<tr>
+    const activeBtn = p.disabled
+      ? `<button class="mini" data-action="enable" data-name="${esc(p.name)}">启用</button>`
+      : `<button class="mini" data-action="disable" data-name="${esc(p.name)}" data-gw="${p.is_gateway ? "1" : "0"}">停用</button>`;
+    return `<tr class="${p.disabled ? "disabled" : ""}">
       <td><span class="dot ${esc(p.state)}" title="${esc(STATE_TXT[p.state] || p.state)}"></span>${STATE_TXT[p.state] || p.state}</td>
       <td>${esc(p.name)}${gw}</td>
       <td class="mono">${esc(p.ip)}</td>
@@ -136,7 +145,10 @@ function renderRows(st) {
       <td class="mono">${fmtBytes(p.rx)}</td>
       <td class="mono">${fmtBytes(p.tx)}</td>
       <td class="ops">
+        ${p.has_client ? `<button class="mini" data-action="qr" data-name="${esc(p.name)}">二维码</button>` : ""}
         ${p.has_client ? `<button class="mini" data-action="dl" data-name="${esc(p.name)}">下载</button>` : ""}
+        ${activeBtn}
+        ${p.has_client ? `<button class="mini" data-action="rotate" data-name="${esc(p.name)}">换密钥</button>` : ""}
         <button class="mini" data-action="edit" data-name="${esc(p.name)}">修改</button>
         <button class="mini danger" data-action="del" data-name="${esc(p.name)}" data-gw="${p.is_gateway ? "1" : "0"}">删除</button>
       </td>
@@ -181,18 +193,117 @@ $("btn-add").addEventListener("click", async () => {
     });
     $("f-name").value = ""; $("f-ip").value = ""; $("f-dns").value = "";
     $("f-ka").value = "25"; $("f-routes").value = "";
-    openModal("✓ 已生成: " + d.peer.name + " (" + d.peer.ip + "/" + d.peer.mode + ")",
-      `<p class="hint">把下面内容保存为 <b>${esc(d.peer.name)}.conf</b> 发到设备上, 在 WireGuard 里「从文件导入」即可。</p>
-       <pre id="conf-text">${esc(d.conf)}</pre>
-       <div class="modal-ops">
-         <button data-action="copy">复制内容</button>
-         <button class="primary" data-action="dl" data-name="${esc(d.peer.name)}">下载 .conf</button>
-         <button data-action="close">关闭</button>
-       </div>`);
+    openConfModal(
+      "✓ 已生成: " + d.peer.name + " (" + d.peer.ip + "/" + d.peer.mode + ")",
+      d.peer.name, d.conf,
+      "手机打开 WireGuard，点「从二维码创建」，或把文本存成 " + d.peer.name + ".conf 再导入。");
     showMsg("设备 " + d.peer.name + " 已创建");
     refresh();
   } catch (e) { showMsg("创建失败: " + e.message, true); }
 });
+
+function openConfModal(title, name, conf, hint) {
+  openModal(title,
+    `<p class="hint">${esc(hint)}</p>
+     <img id="qr-img" alt="配置二维码" width="220" height="220">
+     <p class="warn-text">二维码和下面的文本都含私钥。不要截图，不要转发。</p>
+     <pre id="conf-text">${esc(conf)}</pre>
+     <div class="modal-ops">
+       <button data-action="copy">复制内容</button>
+       <button class="primary" data-action="dl" data-name="${esc(name)}">下载 .conf</button>
+       <button data-action="close">关闭</button>
+     </div>`);
+  attachQr(name);
+}
+
+async function attachQr(name) {
+  const img = $("qr-img");
+  if (!img) return;
+  try {
+    const res = await fetch(panelUrl("/api/peers/" + encodeURIComponent(name) + "/qr"));
+    if (res.status === 401) { showLogin(); return; }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const blob = await res.blob();
+    if (img._url) URL.revokeObjectURL(img._url);
+    img._url = URL.createObjectURL(blob);
+    img.src = img._url;
+  } catch (e) {
+    img.alt = "二维码生成失败";
+  }
+}
+
+async function showPeerQr(name) {
+  let conf = "";
+  try {
+    const res = await fetch(panelUrl("/api/peers/" + encodeURIComponent(name) + "/conf"));
+    if (res.status === 401) { showLogin(); return; }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    conf = await res.text();
+  } catch (e) {
+    showMsg("读配置失败: " + e.message, true);
+    return;
+  }
+  openConfModal("二维码: " + name, name, conf, "用 WireGuard 扫这个码即可导入。");
+}
+
+function disablePeer(name, isGateway) {
+  if (!isGateway) { doDisable(name, false); return; }
+  openModal("停用网关: " + name,
+    `<p class="warn-text">这是内网网关。停用后，其他设备暂时进不了它后面的内网。地址和密钥都还在，可以再启用。</p>
+     <div class="modal-ops">
+       <button class="danger" data-action="disable-force" data-name="${esc(name)}">仍要停用</button>
+       <button data-action="close">取消</button>
+     </div>`);
+}
+
+async function doDisable(name, force) {
+  try {
+    await api("/api/peers/" + encodeURIComponent(name) + "/disable" + (force ? "?force=1" : ""),
+              { method: "POST" });
+    closeModal();
+    showMsg("已停用 " + name + "，地址还留着");
+    refresh();
+  } catch (e) {
+    if (e.code === 409) {
+      openModal("需要二次确认",
+        `<p class="warn-text">${esc(e.message)}</p>
+         <div class="modal-ops">
+           <button class="danger" data-action="disable-force" data-name="${esc(name)}">仍要停用</button>
+           <button data-action="close">取消</button>
+         </div>`);
+    } else {
+      showMsg("停用失败: " + e.message, true);
+    }
+  }
+}
+
+async function doEnable(name) {
+  try {
+    await api("/api/peers/" + encodeURIComponent(name) + "/enable", { method: "POST" });
+    showMsg("已启用 " + name);
+    refresh();
+  } catch (e) { showMsg("启用失败: " + e.message, true); }
+}
+
+function confirmRotate(name) {
+  openModal("更换密钥: " + name,
+    `<p>确定更换 <b>${esc(name)}</b> 的密钥？</p>
+     <p class="hint">IP 不变。手机上的旧配置和旧二维码会立刻失效，需要重新导入。</p>
+     <div class="modal-ops">
+       <button class="danger" data-action="rotate-go" data-name="${esc(name)}">更换</button>
+       <button data-action="close">取消</button>
+     </div>`);
+}
+
+async function doRotate(name) {
+  try {
+    const d = await api("/api/peers/" + encodeURIComponent(name) + "/rotate", { method: "POST" });
+    openConfModal("已更换密钥: " + d.peer.name, d.peer.name, d.conf,
+      "旧配置已经作废。请用新的二维码或文本重新导入，IP 没有变。");
+    showMsg("已更换 " + d.peer.name + " 的密钥");
+    refresh();
+  } catch (e) { showMsg("更换失败: " + e.message, true); }
+}
 
 function copyConf() {
   const t = $("conf-text");

@@ -9,6 +9,7 @@
 . "$ROOT/lib/logs.sh"
 . "$ROOT/lib/uninstall.sh"
 . "$ROOT/lib/install.sh"
+. "$ROOT/lib/backup.sh"
 
 menu_read() {
   local prompt="$1" ans=""
@@ -50,18 +51,22 @@ wgaio ${ver}  管理菜单
   7) 删除设备
   8) 修改设备
   9) 导出设备配置（含私钥，勿外传）
+ 10) 停用或启用设备
+ 11) 更换设备密钥（IP 不变，旧配置作废）
 
 ── 面板 ──────────────────────────
- 10) 启动面板
- 11) 停止面板
- 12) 重启面板
- 13) 面板状态
- 14) 面板日志
+ 12) 启动面板
+ 13) 停止面板
+ 14) 重启面板
+ 15) 面板状态
+ 16) 面板日志
  17) 重新申请 HTTPS 证书
 
 ── 其他 ──────────────────────────
- 15) 回滚最近快照
- 16) 卸载
+ 18) 备份隧道配置
+ 19) 从备份恢复
+ 20) 回滚最近快照（只恢复程序，不动配置）
+ 21) 卸载
  99) 退出
 
 EOF
@@ -155,6 +160,44 @@ menu_show_user() {
   run_core user show "$name"
 }
 
+menu_active_user() {
+  local name act force
+  name="$(menu_read "设备名: ")"
+  [ -n "$name" ] || { log "已取消"; return 0; }
+  act="$(menu_read "输入 enable 启用，其他或直接回车则停用: ")"
+  if [ "$act" = "enable" ]; then
+    run_core user enable "$name"
+    return 0
+  fi
+  force="$(menu_read "如果它是内网网关，输入 force 确认，否则直接回车: ")"
+  if [ "$force" = "force" ]; then
+    run_core user disable "$name" --force
+  else
+    run_core user disable "$name"
+  fi
+}
+
+menu_rotate_user() {
+  local name ok
+  name="$(menu_read "要更换密钥的设备名: ")"
+  [ -n "$name" ] || { log "已取消"; return 0; }
+  warn "换密钥后旧的 .conf 和二维码都不能再用，手机要重新导入。IP 不会变。"
+  ok="$(menu_read "确认请输入 yes: ")"
+  [ "$ok" = "yes" ] || { log "已取消"; return 0; }
+  run_core user rotate "$name"
+  warn "请重新导出这份配置。不要把私钥贴到聊天里。"
+}
+
+menu_restore() {
+  local path ok
+  path="$(menu_read "备份文件路径: ")"
+  [ -n "$path" ] || { log "已取消"; return 0; }
+  warn "会用这份备份覆盖 config.json、clients 和 wg0.conf。"
+  ok="$(menu_read "确认请输入 yes: ")"
+  [ "$ok" = "yes" ] || { log "已取消"; return 0; }
+  run_core backup restore "$path"
+}
+
 menu_logs() {
   local n
   n="$(menu_read "看最近多少行 [100]: ")"
@@ -188,14 +231,18 @@ cmd_menu() {
       7) menu_run menu_del_user ;;
       8) menu_run menu_edit_user ;;
       9) menu_run menu_show_user ;;
-      10) menu_run cmd_panel start ;;
-      11) menu_run cmd_panel stop ;;
-      12) menu_run cmd_panel restart ;;
-      13) menu_run cmd_panel status ;;
-      14) menu_run menu_logs ;;
+      10) menu_run menu_active_user ;;
+      11) menu_run menu_rotate_user ;;
+      12) menu_run cmd_panel start ;;
+      13) menu_run cmd_panel stop ;;
+      14) menu_run cmd_panel restart ;;
+      15) menu_run cmd_panel status ;;
+      16) menu_run menu_logs ;;
       17) menu_run cmd_cert ;;
-      15) menu_run cmd_rollback ;;
-      16) menu_run menu_uninstall ;;
+      18) menu_run cmd_backup ;;
+      19) menu_run menu_restore ;;
+      20) menu_run cmd_rollback ;;
+      21) menu_run menu_uninstall ;;
       99) exit 0 ;;
       *) log "无效选择" ;;
     esac
