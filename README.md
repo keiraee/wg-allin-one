@@ -12,7 +12,8 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 
 **安装会做什么**: 自动安装 wireguard/python3 依赖、初始化 WireGuard 中枢 wg0(已有 wg0.conf 则不动)、
 把套件落到 `/opt/wgaio`(可用 `WGAIO_DIR` 改)、写入 `/usr/local/bin/wgaio` 包装、
-创建并启动 systemd 服务 `wgaio-panel.service`。(卸载: `wgaio uninstall`, 不动用户自有的 /etc/wireguard 配置)
+创建并启动 systemd 服务 `wgaio-panel.service`。
+(卸载: `wgaio uninstall` 会清掉服务/配置/命令，并删除**本工具生成的** wg0.conf；用户自有的 /etc/wireguard 配置不动；程序文件保留便于重装)
 
 ## 重要: 安全组
 
@@ -24,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 
 ## 升级轨道
 
-升级只覆盖程序文件，不动 `config.json` 和 `clients/`。每次先向 GitHub 解析当前提交，再按该提交下载并校验 `SHA256SUMS`。日志会打出上次哈希和本次哈希；提交没变，或者哈希没变，就跳过覆盖。
+升级只覆盖程序文件，不动 `config.json` 和 `clients/`。每次先向 GitHub 解析当前提交，再按该提交下载并校验 `SHA256SUMS`。日志会打出上次哈希和本次哈希；提交没变，或者哈希没变，就跳过覆盖。本地文件被改坏时用 `wgaio verify --fix` 按当前轨道修复。
 
 - **稳定版**：菜单里选「升级稳定版」，或 `WGAIO_REF=latest wgaio upgrade`。跟 GitHub Release 的最新 tag。
 - **抢先试用**：菜单里选「抢先试用 main」，或 `WGAIO_REF=main wgaio upgrade`。本机会记住 `main`，之后普通 `wgaio upgrade` 继续跟 `main`，不会被正式版带走。

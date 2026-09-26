@@ -34,16 +34,15 @@
 ```
 wg-allin-one/
 ├── wgaio.sh            # 入口（对齐 hy2.sh：curl 引导 + install/upgrade/uninstall 子命令）
-├── bin/wgaio.sh        # 装到 /usr/local/bin/wgaio 的命令本体
+├── bin/wgaio           # 套件树内薄包装（exec ../wgaio.sh）；生产入口是 install 写入的 /usr/local/bin/wgaio
 ├── lib/
 │   ├── core.sh         # 日志/公共函数/校验
 │   ├── wizard.sh       # 中文问答向导
-│   ├── install.sh      # 装 wireguard/python3/systemd 单元
+│   ├── install.sh      # 装 wireguard/python3/systemd 单元（落盘到 /opt/wgaio 或 WGAIO_DIR）
 │   ├── user.sh         # wgaio user add/del/edit/list/show 包装
-│   ├── upgrade.sh      # 升级（对比版本号 + 提交哈希，SHA256SUMS 校验）
-│   ├── backup.sh       # 快照 / 回滚
-│   ├── uninstall.sh    # 彻底清理
-│   ├── panel.sh        # 写面板静态文件 + systemd 单元
+│   ├── upgrade.sh      # 升级（提交哈希 + SHA256SUMS）+ 快照/回滚 + verify 校验修复
+│   ├── uninstall.sh    # 清理服务/配置/命令（保留程序文件，可选保留 clients）
+│   ├── panel.sh        # 面板 systemd 单元
 │   └── core.py         # Python 核心：密钥/wg0.conf/HTTP API/面板服务
 ├── panel/              # index.html / style.css / app.js（浅色复古终端风）
 ├── tests/              # Python 单元测试（Windows 语义不兼容的用 skipIf 跳过）
@@ -81,8 +80,8 @@ wg-allin-one/
 | `wgaio user list` | 状态表（握手/流量/状态灯） |
 | `wgaio user show <名>` | 重新导出 .conf |
 | `wgaio status` / `logs` | 查看状态 / 日志 |
-| `wgaio upgrade` / `rollback` | 升级 / 回滚快照 |
-| `wgaio uninstall` | 彻底清理 |
+| `wgaio upgrade` / `verify` / `rollback` | 升级 / 校验并修复本地文件 / 回滚快照（不动 config.json） |
+| `wgaio uninstall` | 清理服务/配置/命令（保留程序文件；用户自有 wg0 不动） |
 
 ### 4.2 面板（wg-panel）
 
@@ -125,18 +124,19 @@ wg-allin-one/
 ## 8. 错误处理与安全（吸收 hy2 血泪教训）
 
 - 向导校验端口占用、网段冲突、endpoint 格式。
-- install/upgrade 幂等；升级前快照，`wgaio rollback` 可回退。
+- install/upgrade 幂等；升级前快照，`wgaio rollback` 可回退（默认不覆盖 config.json）。
+- `wgaio verify [--fix]` 校验本地程序文件；损坏时按当前轨道重新下载修复。
 - 面板 API 只收 `application/json`（防 CSRF）；令牌校验用哈希比较；**令牌不进进程 argv**（hy2 8a09904 教训）。
 - `clients/`、`config.json`、wg0.conf 权限 600；进程 umask 077。
-- uninstall 彻底清理（服务/配置/备份/命令，可选保留 clients）。
+- uninstall 清理服务/配置/备份/命令，保留程序文件便于重装；可选保留 clients；只删本工具生成的 wg0.conf。
 - 下载 .conf 的 URL 路径做 percent-decode（公钥 base64 含 `/` `=` `+`，历史 bug）。
 
 ## 9. 测试 · CI · 发版
 
 - `tests/`：unittest；Windows 语义不兼容用 `skipIf(os.name == "nt")`（对齐 hy2 模式，WSL 跑全套）。
 - GitHub Actions：Linux 上跑单元测试。
-- `SHA256SUMS` 校验下载文件；`wgaio upgrade` 对比版本号 + 提交哈希（同 hy2 语义）。
-- 发版：Releases tag（v0.1.0 起）；main 轨道可用 `HY2_REPO_REF` 同款环境变量试用。
+- `SHA256SUMS` 校验下载文件；`wgaio upgrade` 对比提交哈希与 SHA256SUMS 内容哈希（相同则跳过覆盖）。
+- 发版：Releases tag（v0.1.0 起）；main 轨道可用 `WGAIO_REF=main` 环境变量试用（`latest` 跟 Release）。
 - commit 粒度：一个功能/修复一个中文 commit。
 
 ## 10. 实机验证计划（用户 VPS）
@@ -148,9 +148,13 @@ wg-allin-one/
 ## 11. 非目标（本期明确不做）
 
 - OpenWrt 路由器端（ADG/ShellClash 联动）——第二期单独设计。
-- 面板公网 HTTPS 接入（本期仅隧道内 HTTP + 令牌；反代由用户自理）。
+- 反向代理/公网正式 CA 证书（向导支持公网监听 + 可选自签 HTTPS；正式证书由用户自理）。
 - 多用户/配额/流量套餐（hy2 的订阅体系不搬）。
 - IPv6 组网（用户已主动关闭 v6）。
+
+### 11.1 范围变更（相对初稿）
+
+初稿曾把「面板公网 HTTPS」列为非目标；产品已扩展为向导可选「公网直接访问」+ 自签证书，README 与向导均已覆盖。以本节为准。
 
 ## 12. 历史踩坑存档（写进测试与文档的根据）
 
