@@ -2,25 +2,25 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI(hy2-allin-one 同款体验)。
 
+当前正式版是 [v0.2.3](https://github.com/keiraee/wg-allin-one/releases/tag/v0.2.3)。
+
 更新有两条轨道：
 
-- **正式版**：跟 [Releases](https://github.com/keiraee/wg-allin-one/releases) 里的最新 tag。现在这个 tag 是 [v0.1.0](https://github.com/keiraee/wg-allin-one/releases/tag/v0.1.0)。新装、以及没记住别的轨道时，安装和 `wgaio upgrade` 都走这里。
-- **main**：仓库里还没打 tag 的提交。菜单「轨道」显示 `main` 的机器，普通升级会继续拉 `main`。要试用这条，见 [试用 main](#试用-main)。
-
-`main` 比 `v0.1.0` 多这些还没发版的功能：面板随机入口、Let's Encrypt 正式证书、设备停用和换密钥、配置二维码、隧道配置备份、Linux / Mac 一分钟加入命令。现在执行 `WGAIO_REF=latest wgaio upgrade`，程序会换成 `v0.1.0`，这些功能不在那个 tag 里。`config.json` 和 `clients/` 不会被升级删掉。
+- **正式版**：跟 [Releases](https://github.com/keiraee/wg-allin-one/releases) 里的最新 tag。新装、以及没记住别的轨道时，安装和 `wgaio upgrade` 都走这里。
+- **main**：仓库里还没打进 Release 的提交。菜单「轨道」显示 `main` 的机器，普通升级会继续拉 `main`。要试用这条，见 [试用 main](#试用-main)。
 
 ## 快速开始
 
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.1.0/wgaio.sh -o wgaio.sh
-sudo WGAIO_REF=latest bash wgaio.sh install
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.2.3/wgaio.sh -o wgaio.sh
+sudo bash wgaio.sh install
 ```
 
 按中文向导回车即可; 装完把令牌保存好(只显示一次)。
 
-`v0.1.0` 这份安装脚本在下载其余文件时，默认仍会去拉 `main`。命令里的 `WGAIO_REF=latest` 让它改拉最新 Release，并在本机记下「以后跟正式版」。装好后看菜单第一行，轨道应是 `latest`。
+这条安装脚本会下载 GitHub 最新 Release，不会去拉 `main`。装好后看菜单第一行，轨道应是 `latest`。
 
 **安装会做什么**: 自动安装 wireguard/python3 依赖、初始化 WireGuard 中枢 wg0(已有 wg0.conf 则不动)、
 把套件落到 `/opt/wgaio`(可用 `WGAIO_DIR` 改)、写入 `/usr/local/bin/wgaio` 包装、
@@ -39,10 +39,10 @@ sudo WGAIO_REF=latest bash wgaio.sh install
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.1.0`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.2.3`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.1.0`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.2.3`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
