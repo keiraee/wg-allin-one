@@ -1,6 +1,6 @@
 # wg-allin-one
 
-一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI(hy2-allin-one 同款体验)。
+一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
 当前正式版是 [v0.2.3](https://github.com/keiraee/wg-allin-one/releases/tag/v0.2.3)。
 
