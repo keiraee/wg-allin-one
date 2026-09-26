@@ -175,7 +175,8 @@ run_wizard() {
     printf '  2) 纯 HTTP\n' >&2
     https_choice="$(ask '选 1 或 2' '1')"
     case "$https_choice" in
-      1|2) ;;
+      1) ;;
+      2) warn "已选纯 HTTP: 令牌明文传输, 公网环境可能被窃听, 强烈建议改用 HTTPS" ;;
       *) die "无效选择, 请输入 1 或 2" ;;
     esac
   fi
@@ -207,10 +208,11 @@ run_wizard() {
   token="$("$py" -c 'import secrets,string as s; a=s.ascii_letters+s.digits; g=lambda n:"".join(secrets.choice(a) for _ in range(n)); print("wgaio-" + "-".join(g(5) for _ in range(4)))')"
   hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
-  local tls_cert="" tls_key=""
+  local tls_cert="" tls_key="" tls_root
+  tls_root="${WGAIO_CONFIG_DIR:-$WGAIO_ROOT}"
   if [ "$https_choice" = "1" ]; then
-    tls_cert="${WGAIO_ROOT}/certs/wgaio.crt"
-    tls_key="${WGAIO_ROOT}/certs/wgaio.key"
+    tls_cert="${tls_root}/certs/wgaio.crt"
+    tls_key="${tls_root}/certs/wgaio.key"
   fi
 
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
@@ -218,17 +220,19 @@ run_wizard() {
         "$tls_cert" "$tls_key" "$tls_cn" <<'PY'
 import json, os, re, sys
 vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cert, tls_key, tls_cn = sys.argv[1:]
-if not re.match(r"^[^:]+:\d+$", endpoint):
-    sys.exit("错误: endpoint 格式应为 IP或域名:端口")
+root = os.environ.get("WGAIO_ROOT", ".")
+out_root = os.environ.get("WGAIO_CONFIG_DIR") or root
+sys.path.insert(0, os.path.join(root, "lib"))
+from core import ApiError, cidr_bounds, int_to_ip, parse_endpoint, validate_config
+try:
+    parse_endpoint(endpoint)
+except ApiError as e:
+    sys.exit("错误: %s" % e)
 try:
     wg_port_i = int(wg_port)
     panel_port_i = int(panel_port)
 except ValueError:
     sys.exit("错误: 端口必须是纯数字(1-65535)")
-root = os.environ.get("WGAIO_ROOT", ".")
-out_root = os.environ.get("WGAIO_CONFIG_DIR") or root
-sys.path.insert(0, os.path.join(root, "lib"))
-from core import ApiError, cidr_bounds, int_to_ip, validate_config
 try:
     base, _last = cidr_bounds(vpn_cidr)
 except ValueError:

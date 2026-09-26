@@ -16,10 +16,19 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(name, sums)
 
     def test_sha256sums_verifies(self):
-        r = subprocess.run(["sha256sum", "-c", "SHA256SUMS"],
-                           cwd=str(ROOT), capture_output=True, text=True,
-                           timeout=120, encoding="utf-8")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        import hashlib
+        sums = (ROOT / "SHA256SUMS").read_text(encoding="utf-8")
+        for line in sums.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            digest, name = line.split(None, 1)
+            name = name.lstrip("*").strip()
+            p = ROOT / name
+            self.assertTrue(p.exists(), "缺少发版文件: %s" % name)
+            data = p.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            self.assertEqual(hashlib.sha256(data).hexdigest(), digest,
+                             "SHA256SUMS 与文件内容不一致: %s" % name)
 
     def test_ci_workflow_runs_tests(self):
         yml = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")

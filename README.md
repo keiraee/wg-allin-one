@@ -11,8 +11,8 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 按中文向导回车即可; 装完把令牌保存好(只显示一次)。
 
 **安装会做什么**: 自动安装 wireguard/python3 依赖、初始化 WireGuard 中枢 wg0(已有 wg0.conf 则不动)、
-写入 `/usr/local/bin/wgaio` 包装、下载完整套件到 `/opt/wgaio`、
-创建并启动 systemd 服务 `wgaio-panel.service`。(卸载: `wgaio uninstall`, 不动 /etc/wireguard)
+把套件落到 `/opt/wgaio`(可用 `WGAIO_DIR` 改)、写入 `/usr/local/bin/wgaio` 包装、
+创建并启动 systemd 服务 `wgaio-panel.service`。(卸载: `wgaio uninstall`, 不动用户自有的 /etc/wireguard 配置)
 
 ## 重要: 安全组
 

@@ -50,7 +50,8 @@ PostDown = wan=\$(ip -4 route show default 2>/dev/null | awk '{print \$5; exit}'
 EOF
 }
 
-init_wg_hub() {
+init_wg_hub() {  # init_wg_hub <config_dir>
+  local conf_dir="$1"
   local conf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
   if [ -f "$conf" ]; then
     log "wg0.conf 已存在, 保持不动(不覆盖现有 WireGuard 配置)"
@@ -62,7 +63,7 @@ init_wg_hub() {
   install -d -m 700 "$(dirname "$conf")"
   local priv
   priv="$(wg genkey)"
-  render_wg0_conf "$priv" "$(read_cfg vpn_cidr)" "$(read_cfg wg_port)" > "$conf"
+  render_wg0_conf "$priv" "$(read_cfg "$conf_dir/config.json" vpn_cidr)" "$(read_cfg "$conf_dir/config.json" wg_port)" > "$conf"
   chmod 600 "$conf"
   log "已生成 WireGuard 中枢配置: $conf"
   sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || warn "开启转发失败, 请手动设置 ip_forward=1"
@@ -87,20 +88,26 @@ stage_files() {  # stage_files <dest>
   cp -f "$ROOT"/lib/*.sh "$dest/lib/"
   cp -f "$ROOT"/panel/* "$dest/panel/"
   cp -f "$ROOT/wgaio.sh" "$dest/wgaio.sh"
+  [ -d "$ROOT/bin" ] && cp -f "$ROOT"/bin/* "$dest/bin/"
+  [ -f "$ROOT/SHA256SUMS" ] && cp -f "$ROOT/SHA256SUMS" "$dest/SHA256SUMS"
   shopt -u nullglob
 }
 
 sync_config() {  # sync_config <dest>
   local dest="$1"
-  if [ "$(cd "$ROOT" && pwd)" != "$(cd "$dest" && pwd)" ] && [ -f "$ROOT/config.json" ]; then
+  # 已有配置不覆盖（向导刚写入的为准）；仅当目标缺失时才从运行目录搬一份
+  if [ ! -f "$dest/config.json" ] && [ -f "$ROOT/config.json" ]; then
     cp -f "$ROOT/config.json" "$dest/config.json"
   fi
-  chmod 600 "$dest/config.json"
+  [ -f "$dest/config.json" ] && chmod 600 "$dest/config.json"
 }
 
-maybe_gen_tls() {
+maybe_gen_tls() {  # maybe_gen_tls <config_dir>
+  local cfgdir="$1"
   local cert key cn
-  cert="$(read_cfg tls_cert)"; key="$(read_cfg tls_key)"; cn="$(read_cfg tls_cn)"
+  cert="$(read_cfg "$cfgdir/config.json" tls_cert)"
+  key="$(read_cfg "$cfgdir/config.json" tls_key)"
+  cn="$(read_cfg "$cfgdir/config.json" tls_cn)"
   [ -n "$cert" ] || return 0
   [ -f "$cert" ] && return 0
   command -v openssl >/dev/null 2>&1 || { warn "没有 openssl, 跳过 HTTPS(可稍后手动补证书)"; return 0; }
@@ -113,9 +120,10 @@ maybe_gen_tls() {
   log "已生成自签 TLS 证书: $cert"
 }
 
-read_cfg() {
-  local py; py="$(find_python)"
-  "$py" -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));print(d.get('$1',''))" "$dest/config.json"
+read_cfg() {  # read_cfg <config.json 路径> <键>
+  local cfg="$1" key="$2" py
+  py="$(find_python)"
+  "$py" -c 'import json,sys;d=json.load(open(sys.argv[1],encoding="utf-8"));print(d.get(sys.argv[2],""))' "$cfg" "$key"
 }
 
 cmd_install() {
@@ -132,8 +140,14 @@ cmd_install() {
   fi
 
   umask 077
-  local dest="$WGAIO_ROOT" fresh=1
-  [ "$dry" -eq 1 ] && dest="$WGAIO_ROOT/_stage"
+  # 正式安装固定落在安装根（默认 /opt/wgaio，可用 WGAIO_DIR 覆盖），
+  # 不跟随入口脚本所在目录——否则从克隆目录安装会装进克隆目录。
+  local dest fresh=1
+  if [ "$dry" -eq 1 ]; then
+    dest="$WGAIO_ROOT/_stage"
+  else
+    dest="${WGAIO_DIR:-/opt/wgaio}"
+  fi
   install -d -m 700 "$dest"
   # 再跑一次安装不能重写配置：登录密码会换掉，wg0.conf 却保持原样，隧道和面板对不上。
   if [ -f "$dest/config.json" ]; then
@@ -142,10 +156,8 @@ cmd_install() {
     fi
     fresh=0
     log "检测到已有配置, 跳过问答(不更换登录密码, 不改网段和端口)"
-  elif [ "$dry" -eq 1 ]; then
-    WGAIO_CONFIG_DIR="$dest" run_wizard
   else
-    run_wizard
+    WGAIO_CONFIG_DIR="$dest" run_wizard
   fi
 
   if [ "$dry" -eq 0 ]; then
@@ -157,11 +169,11 @@ cmd_install() {
   sync_config "$dest"
 
   if [ "$dry" -eq 0 ]; then
-    init_wg_hub
+    init_wg_hub "$dest"
   fi
 
   if [ "$dry" -eq 0 ]; then
-    maybe_gen_tls
+    maybe_gen_tls "$dest"
   fi
 
   if [ "$dry" -eq 0 ]; then
@@ -205,7 +217,7 @@ EOF
   log "====================================================="
 
   local gw_ip
-  gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$(read_cfg vpn_cidr)")"
+  gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$(read_cfg "$dest/config.json" vpn_cidr)")"
   log "WireGuard 中枢: wg0 (网关 ${gw_ip}) — 设备通过面板添加"
   # shellcheck source=lib/upgrade.sh
   . "$ROOT/lib/upgrade.sh"
