@@ -2,6 +2,9 @@
 *.tmp
 *.bak
 
+# 设计笔记只留本机，不跟踪、不推送
+docs/
+
 # 系统文件
 .DS_Store
 Thumbs.db
