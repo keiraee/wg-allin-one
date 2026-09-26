@@ -114,17 +114,27 @@ menu_del_user() {
 }
 
 menu_edit_user() {
-  local name new_name ip mode choice
+  local name new_name ip dns ka mode routes choice
   local -a args
   name="$(menu_read "要修改的设备名: ")"
   [ -n "$name" ] || { log "已取消"; return 0; }
   new_name="$(menu_read "新名字(不改直接回车): ")"
   ip="$(menu_read "新 IP(不改直接回车): ")"
+  dns="$(menu_read "新 DNS(不改直接回车, 多个用逗号): ")"
+  ka="$(menu_read "保活秒数 0-120(不改直接回车): ")"
+  routes="$(menu_read "网关路由段(逗号分隔; 清空输入 - ; 不改直接回车): ")"
   echo "  1) 分流  2) 全隧道  直接回车=不改"
   choice="$(menu_read "流量模式: ")"
   args=(user edit "$name")
   [ -n "$new_name" ] && args+=(--rename "$new_name")
   [ -n "$ip" ] && args+=(--ip "$ip")
+  [ -n "$dns" ] && args+=(--dns "$dns")
+  [ -n "$ka" ] && args+=(--ka "$ka")
+  if [ "$routes" = "-" ]; then
+    args+=(--routes "")
+  elif [ -n "$routes" ]; then
+    args+=(--routes "$routes")
+  fi
   case "$choice" in
     1) mode="split" ;;
     2) mode="full" ;;

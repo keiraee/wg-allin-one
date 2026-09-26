@@ -43,8 +43,15 @@ class AllocTests(unittest.TestCase):
         small = {"vpn_cidr": "10.66.66.0/30"}
         self.assertEqual(core.next_ip(small, []), "10.66.66.2")
 
-    def test_next_ip_slash31_exhausted(self):
+    def test_next_ip_slash31_one_host(self):
         small = {"vpn_cidr": "10.66.66.0/31"}
+        self.assertEqual(core.next_ip(small, []), "10.66.66.0")
+        peers = [{"allowed_ips": ["10.66.66.0/32"]}]
+        with self.assertRaises(core.ApiError):
+            core.next_ip(small, peers)
+
+    def test_next_ip_slash32_exhausted(self):
+        small = {"vpn_cidr": "10.66.66.1/32"}
         with self.assertRaises(core.ApiError):
             core.next_ip(small, [])
 

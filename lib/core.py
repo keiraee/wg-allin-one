@@ -266,8 +266,9 @@ def parse_conf():
                     comment = line.lstrip("#").strip()
                     for pfx in ("name:", "Name =", "name ="):
                         if comment.startswith(pfx):
-                            comment = comment[len(pfx):].strip()
-                    cur["name"] = comment
+                            cur["name"] = comment[len(pfx):].strip()
+                            break
+                    # 其他注释不当作设备名，避免手工注释误识别
                 continue
             if "=" in line:
                 k, v = (x.strip() for x in line.split("=", 1))
@@ -331,7 +332,15 @@ def used_ips(peers=None):
 def next_ip(cfg, peers=None):
     used = used_ips(peers)
     base, last = cidr_bounds(cfg["vpn_cidr"])
-    for n in range(base + 2, last):
+    prefix = int(str(cfg["vpn_cidr"]).partition("/")[2] or 32)
+    # 服务器占 base+1；/30 及以下再跳过网络/广播；/31 没有网络/广播，只剩 base 可分
+    if prefix <= 30:
+        candidates = range(base + 2, last)
+    elif prefix == 31:
+        candidates = [base]
+    else:
+        candidates = []
+    for n in candidates:
         cand = int_to_ip(n)
         if cand not in used:
             return cand
@@ -353,6 +362,11 @@ def split_allowed(cfg, peers, self_name):
                 continue
             routes.append(item)
     return ", ".join([cfg["vpn_cidr"]] + routes)
+
+
+def default_allowed(cfg, peers=None):
+    """状态展示用的默认分流网段：与 split_allowed 同源，含其他设备宣布的网关路由。"""
+    return split_allowed(cfg, peers or [], None)
 
 
 def build_client_conf(priv, ip, cfg, mode, server_pub, keepalive, peers=None, self_name=None):
@@ -792,6 +806,7 @@ def full_status(cfg):
         nip = next_ip(cfg)
     except ApiError:
         nip = None
+    peers = parse_conf()[1]
     return {
         "ok": True,
         "iface": {"name": WG_IFACE, "up": bool(live) or listen_port > 0,
@@ -799,8 +814,7 @@ def full_status(cfg):
                   "public_key": server_pubkey()},
         "endpoint": cfg.get("endpoint", ""),
         "panel_bind": cfg.get("panel_bind") or "",
-        "default_allowed": ", ".join(
-            [cfg["vpn_cidr"]] + list(cfg.get("lan_cidrs") or [])),
+        "default_allowed": default_allowed(cfg, peers),
         "next_ip": nip,
         "peers": list_peers(live=live),
         "now": int(time.time()),
@@ -916,6 +930,10 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
+        extra = dict(extra or {})
+        if getattr(self, "_refresh_sess", None) and "Set-Cookie" not in extra:
+            extra["Set-Cookie"] = session_cookie(
+                self._refresh_sess, SESSION_TTL, self._cookie_secure())
         self.send_response_only(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -925,10 +943,11 @@ class PanelHandler(BaseHTTPRequestHandler):
                          "script-src 'self'; object-src 'none'; base-uri 'self'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")
-        for k, v in (extra or {}).items():
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
-        self.wfile.write(data)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(data)
 
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False))
@@ -977,6 +996,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return False
             _sessions[s] = now + SESSION_TTL
             _sessions.move_to_end(s)
+            # 滑动续期时同步刷新 Cookie Max-Age，避免会话还在但 Cookie 先过期
+            self._refresh_sess = s
             return True
 
     def _cfg(self):
@@ -1090,7 +1111,11 @@ class PanelHandler(BaseHTTPRequestHandler):
         self._handle("PATCH")
 
     def do_HEAD(self):
-        self._handle("GET")
+        self._head_only = True
+        try:
+            self._handle("GET")
+        finally:
+            self._head_only = False
 
     def do_DELETE(self):
         self._handle("DELETE")

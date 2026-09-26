@@ -85,6 +85,12 @@ class ConfIoTests(unittest.TestCase):
         self.assertEqual(peers2[0]["name"], "PEER_A")  # fallback: pubkey[:8]
         self.assertEqual(peers2[0]["pubkey"], "PEER_A")
 
+    def test_bare_comment_is_not_name(self):
+        text = SAMPLE.replace("# name: home-router", "# just a note")
+        self.conf.write_text(text, encoding="utf-8")
+        _, peers = core.parse_conf()
+        self.assertEqual(peers[0]["name"], "")
+
     def test_negative_keepalive_clamped(self):
         self.conf.write_text(SAMPLE.replace("PersistentKeepalive = 25",
                                             "PersistentKeepalive = -5"), encoding="utf-8")
