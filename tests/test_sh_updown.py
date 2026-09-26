@@ -52,6 +52,29 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("校验通过", r.stdout + r.stderr)
 
+    def test_verify_reports_tamper_without_fix(self):
+        import hashlib
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "lib").mkdir()
+        for f in ("core.sh", "upgrade.sh"):
+            os.symlink(ROOT / "lib" / f, root / "lib" / f)
+        (root / "payload.txt").write_text("hello", encoding="utf-8")
+        h = hashlib.sha256(b"hello").hexdigest()
+        (root / "SHA256SUMS").write_text("%s  payload.txt\n" % h, encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; cmd_verify',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("一致", r.stdout + r.stderr)
+        (root / "payload.txt").write_text("tampered", encoding="utf-8")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; cmd_verify',
+            cwd=root)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("verify --fix", r.stderr)
+
 
 class UpgradeApplyTests(unittest.TestCase):
     def test_upgrade_keeps_config_and_rollback_restores_entry(self):
@@ -92,6 +115,42 @@ class UpgradeApplyTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "STDOUT:\n%s\nSTDERR:\n%s" % (r.stdout, r.stderr))
         self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "old-entry\n")
         self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
+
+    def test_rollback_does_not_restore_config(self):
+        import hashlib
+        import shutil
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        root = base / "inst"
+        src = base / "src"
+        (root / "lib").mkdir(parents=True)
+        (src / "lib").mkdir(parents=True)
+        for name in ("core.sh", "upgrade.sh"):
+            shutil.copy(ROOT / "lib" / name, root / "lib" / name)
+            shutil.copy(ROOT / "lib" / name, src / "lib" / name)
+        (root / "wgaio.sh").write_text("old-entry\n", encoding="utf-8", newline="\n")
+        (root / "config.json").write_text('{"token":"old"}\n', encoding="utf-8", newline="\n")
+        (src / "wgaio.sh").write_text("new-entry\n", encoding="utf-8", newline="\n")
+        names = ["wgaio.sh", "lib/core.sh", "lib/upgrade.sh"]
+        lines = []
+        for name in names:
+            digest = hashlib.sha256((src / name).read_bytes()).hexdigest()
+            lines.append("%s  %s" % (digest, name))
+        (src / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # 升级后用户改了配置，回滚不得撤销这次修改
+        (root / "config.json").write_text('{"token":"user-changed"}\n', encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; cmd_rollback',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "old-entry\n")
+        self.assertEqual((root / "config.json").read_text(encoding="utf-8"), '{"token":"user-changed"}\n')
 
 
 class TrackTests(unittest.TestCase):

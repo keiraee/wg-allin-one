@@ -89,7 +89,8 @@ usage() {
   status                  总览
   logs [行数]             面板日志
   upgrade                 按已记住的轨道升级(稳定版=Release, main=抢先试用)
-  rollback                回滚到最近快照
+  verify [--fix]          校验本地文件是否被改动, --fix 从轨道重新下载修复
+  rollback                回滚到最近快照(不覆盖 config.json)
   uninstall               卸载
 
 稳定版: WGAIO_REF=latest wgaio upgrade
@@ -114,6 +115,7 @@ case "$cmd" in
   version) printf 'wgaio %s\n' "$VERSION"; exit 0 ;;
   user) shift; . "$ROOT/lib/user.sh"; cmd_user "$@" ;;
   rollback) shift; . "$ROOT/lib/upgrade.sh"; cmd_rollback "$@" ;;
+  verify) shift; . "$ROOT/lib/upgrade.sh"; cmd_verify "$@" ;;
   install|upgrade|uninstall|panel|status|logs)
     mod="$ROOT/lib/${cmd}.sh"
     [ -f "$mod" ] || die "模块未安装: $cmd"

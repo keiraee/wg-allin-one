@@ -41,9 +41,13 @@ wgaio panel start|stop|restart|status|install
 wgaio status
 wgaio logs
 wgaio upgrade
+wgaio verify [--fix]
 wgaio rollback
 wgaio uninstall
 ```
+
+`verify` 校验本地程序文件是否被改动；`verify --fix` 按当前轨道重新下载修复。
+`rollback` 恢复程序文件到最近快照，**不会覆盖 `config.json`**（升级也从不改配置）。
 
 ## 公网管理
 

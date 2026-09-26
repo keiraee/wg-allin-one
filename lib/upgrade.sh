@@ -188,7 +188,7 @@ cmd_upgrade() {
     log "上次哈希: $(hash_label "$old_sum" "$old_commit")"
     if same_commit "$old_commit" "$remote_sha"; then
       log "本次哈希: $(hash_label "$old_sum" "$remote_sha")"
-      log "提交未变化, 无需升级"
+      log "提交未变化, 无需覆盖 (若怀疑本地文件损坏: wgaio verify --fix)"
       return 0
     fi
     src="$(mktemp -d)"
@@ -222,9 +222,55 @@ cmd_rollback() {
   local dir="${WGAIO_ROOT}" latest
   latest="$(ls -1t "$dir"/snapshots/wgaio-*.tar.gz 2>/dev/null | head -1)"
   [ -n "$latest" ] || die "没有可用快照, 无法回滚"
-  tar xzf "$latest" -C "$dir"
+  # 默认不动 config.json: 升级本就不改配置，回滚也不应撤销用户事后对端口/令牌的调整
+  tar xzf "$latest" -C "$dir" --exclude=config.json
   if command -v systemctl >/dev/null 2>&1; then
     systemctl try-restart wgaio-panel 2>/dev/null || true
   fi
-  log "已回滚到快照: $latest"
+  log "已回滚到快照: $latest (config.json 未改动; 如需连配置一起恢复请手动从快照解出)"
+}
+
+cmd_verify() {
+  local fix=0 dir="${WGAIO_ROOT}"
+  [ "${1:-}" = "--fix" ] && fix=1
+  [ -f "$dir/SHA256SUMS" ] || die "缺少 SHA256SUMS, 无法校验"
+  local bad
+  bad="$(cd "$dir" && sha256sum -c SHA256SUMS 2>/dev/null | grep -v ': OK$' || true)"
+  if [ -z "$bad" ]; then
+    log "本地文件与 SHA256SUMS 一致"
+    return 0
+  fi
+  warn "以下文件与 SHA256SUMS 不一致:"
+  printf '%s\n' "$bad" >&2
+  if [ "$fix" -eq 0 ]; then
+    die "校验未通过。执行 wgaio verify --fix 从当前轨道重新下载并修复" 1
+  fi
+  log "正在从当前轨道重新下载并修复..."
+  local persist resolved remote_sha src
+  persist="${WGAIO_REF:-}"
+  if [ -z "$persist" ]; then
+    persist="$(read_track WGAIO_TRACK_REF)"
+  fi
+  [ -n "$persist" ] || persist="main"
+  if [ "$persist" = "latest" ]; then
+    resolved="$(resolve_latest_tag)"
+    WGAIO_PERSIST_TRACK="latest"
+  else
+    resolved="$persist"
+    WGAIO_PERSIST_TRACK="$persist"
+  fi
+  export WGAIO_PERSIST_TRACK
+  remote_sha="$(resolve_commit "$resolved")"
+  export WGAIO_FETCH_COMMIT="$remote_sha"
+  src="$(mktemp -d)"
+  download_commit_tree "$remote_sha" "$src"
+  check_sha256 "$src"
+  apply_tree "$src" "$dir"
+  rm -rf "$src"
+  check_sha256 "$dir"
+  write_track "$dir"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl try-restart wgaio-panel 2>/dev/null || true
+  fi
+  log "已按轨道 ${WGAIO_PERSIST_TRACK} 修复本地文件"
 }
