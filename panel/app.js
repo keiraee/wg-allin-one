@@ -11,12 +11,26 @@ function showMsg(text, isErr) {
   if (!isErr) setTimeout(() => { el.style.display = "none"; }, 5000);
 }
 
+let joinTimer = null;
+let joinBusy = false;
+
+function clearJoinTimer() {
+  if (joinTimer) {
+    clearInterval(joinTimer);
+    joinTimer = null;
+  }
+}
+
 function openModal(title, bodyHtml) {
+  clearJoinTimer();
   $("modal-title").textContent = title;
   $("modal-body").innerHTML = bodyHtml;
   $("modal-mask").classList.add("show");
 }
-function closeModal() { $("modal-mask").classList.remove("show"); }
+function closeModal() {
+  clearJoinTimer();
+  $("modal-mask").classList.remove("show");
+}
 $("modal-mask").addEventListener("click", (e) => {
   if (e.target === $("modal-mask")) closeModal();
 });
@@ -111,6 +125,7 @@ document.addEventListener("click", (e) => {
   else if (act === "del-noconf") doDel(name, false);
   else if (act === "save") saveEdit(name);
   else if (act === "copy") copyConf();
+  else if (act === "join") copyJoin(name, btn.dataset.os || "linux");
   else if (act === "close") closeModal();
   else if (act === "qr") showPeerQr(name);
   else if (act === "disable") disablePeer(name, btn.dataset.gw === "1");
@@ -203,17 +218,82 @@ $("btn-add").addEventListener("click", async () => {
 });
 
 function openConfModal(title, name, conf, hint) {
+  const full = String(conf).indexOf("0.0.0.0/0") !== -1;
+  const httpWarn = location.protocol === "http:"
+    ? `<p class="warn-text">面板现在是 HTTP。执行加入命令时，私钥会明文经过网络。</p>` : "";
   openModal(title,
     `<p class="hint">${esc(hint)}</p>
      <img id="qr-img" alt="配置二维码" width="220" height="220">
      <p class="warn-text">二维码和下面的文本都含私钥。不要截图，不要转发。</p>
      <pre id="conf-text">${esc(conf)}</pre>
+     <div class="join-box">
+       <p class="hint">Linux 或 Mac 加入这台内网：复制命令，到那台电脑的终端粘贴。命令 1 分钟内有效，里面没有私钥。私钥只在这一分钟里随脚本下来，用完就删。接口名是 wgaio，不会动那台电脑上已有的 wg0。电脑上需要已有 curl。</p>
+       ${full ? `<p class="warn-text">这是全隧道。在远程 Linux 上执行会把默认路由改走 VPN，SSH 可能中断。</p>` : ""}
+       ${httpWarn}
+       <p class="hint">Mac 没有 Homebrew 时，用 App Store 的 WireGuard，再点「下载 .conf」导入。Windows 和 iOS 用官方客户端扫上面的二维码。</p>
+       <pre id="join-cmd" hidden></pre>
+       <p class="hint" id="join-exp" hidden></p>
+       <div class="modal-ops start">
+         <button data-action="join" data-os="linux" data-name="${esc(name)}">复制 Linux 加入命令</button>
+         <button data-action="join" data-os="mac" data-name="${esc(name)}">复制 Mac 命令</button>
+       </div>
+     </div>
      <div class="modal-ops">
        <button data-action="copy">复制内容</button>
        <button class="primary" data-action="dl" data-name="${esc(name)}">下载 .conf</button>
        <button data-action="close">关闭</button>
      </div>`);
   attachQr(name);
+}
+
+function armJoinExpiry(seconds) {
+  clearJoinTimer();
+  const end = Date.now() + seconds * 1000;
+  const tick = () => {
+    const node = $("join-exp");
+    if (!node) {
+      clearJoinTimer();
+      return;
+    }
+    const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+    node.hidden = false;
+    if (left <= 0) {
+      node.textContent = "这条命令已超过 1 分钟，不能再用。需要的话重新复制。";
+      clearJoinTimer();
+      return;
+    }
+    node.textContent = "还剩 " + left + " 秒。超时后服务器会拒绝这条命令。";
+  };
+  tick();
+  joinTimer = setInterval(tick, 1000);
+}
+
+async function copyJoin(name, osName) {
+  if (joinBusy) return;
+  joinBusy = true;
+  try {
+    const d = await api("/api/peers/" + encodeURIComponent(name) + "/join?os=" + encodeURIComponent(osName),
+                         { method: "POST" });
+    const pre = $("join-cmd");
+    if (pre) {
+      pre.hidden = false;
+      pre.textContent = d.command;
+    }
+    armJoinExpiry(d.expires_in || 60);
+    const notes = [];
+    if (d.loopback) notes.push("命令里的地址只有本机能打开。要加入的电脑必须能访问这个面板地址。");
+    if (d.plain_http) notes.push("当前是 HTTP，私钥会明文传输。");
+    try {
+      await navigator.clipboard.writeText(d.command);
+      showMsg("已复制，" + (d.expires_in || 60) + " 秒内有效。" + (notes.length ? " " + notes.join("") : ""));
+    } catch (err) {
+      showMsg("没能写入剪贴板，请从框里手动复制。" + (notes.length ? " " + notes.join("") : ""), true);
+    }
+  } catch (e) {
+    showMsg("生成加入命令失败: " + e.message, true);
+  } finally {
+    joinBusy = false;
+  }
 }
 
 async function attachQr(name) {

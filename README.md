@@ -7,7 +7,7 @@
 - **正式版**：跟 [Releases](https://github.com/keiraee/wg-allin-one/releases) 里的最新 tag。现在这个 tag 是 [v0.1.0](https://github.com/keiraee/wg-allin-one/releases/tag/v0.1.0)。新装、以及没记住别的轨道时，安装和 `wgaio upgrade` 都走这里。
 - **main**：仓库里还没打 tag 的提交。菜单「轨道」显示 `main` 的机器，普通升级会继续拉 `main`。要试用这条，见 [试用 main](#试用-main)。
 
-`main` 比 `v0.1.0` 多这些还没发版的功能：面板随机入口、Let's Encrypt 正式证书、设备停用和换密钥、配置二维码、隧道配置备份。现在执行 `WGAIO_REF=latest wgaio upgrade`，程序会换成 `v0.1.0`，这些功能不在那个 tag 里。`config.json` 和 `clients/` 不会被升级删掉。
+`main` 比 `v0.1.0` 多这些还没发版的功能：面板随机入口、Let's Encrypt 正式证书、设备停用和换密钥、配置二维码、隧道配置备份、Linux / Mac 一分钟加入命令。现在执行 `WGAIO_REF=latest wgaio upgrade`，程序会换成 `v0.1.0`，这些功能不在那个 tag 里。`config.json` 和 `clients/` 不会被升级删掉。
 
 ## 快速开始
 
@@ -91,6 +91,8 @@ wgaio uninstall
 `verify` 校验本地程序文件是否被改动；`verify --fix` 按当前轨道重新下载修复。
 `rollback` 恢复程序文件到最近快照，**不会覆盖 `config.json`**（升级也从不改配置）。
 `backup` 打包的是 `config.json`、`clients/` 和 `wg0.conf`，和升级快照分开。停用设备会留着原来的地址和私钥；更换密钥不改 IP，旧的客户端配置随之作废。面板里的二维码含私钥，不要截图外传。
+
+面板里可以复制 Linux 或 Mac 的加入命令。命令用时间戳签名，**60 秒后服务器拒绝**。命令行里没有私钥；执行时才把安装脚本取下来，写到临时文件，跑完就删。脚本安装 WireGuard 工具，配置写到 `/etc/wireguard/wgaio.conf`，不会覆盖这台电脑上已有的 `wg0`。Windows 和 iOS 仍用官方客户端扫二维码或导入下载的配置。
 
 ## 公网管理
 

@@ -1365,6 +1365,243 @@ def verify_token(plain, token_hash):
         return False
 
 
+JOIN_TTL = 60
+JOIN_OS = ("linux", "mac")
+_JOIN_MARK = "WGAIO_CONF"
+_JOIN_DENIED = "加入命令已失效\n"
+_HOST_RE = re.compile(r"^[A-Za-z0-9.:_\-\[\]]{1,253}$")
+
+
+def join_mac(token_hash, name, os_name, ts):
+    """用面板令牌的哈希给「设备 + 系统 + 时间戳」签名。令牌原文不进命令。"""
+    key = str(token_hash or "").encode("utf-8")
+    msg = ("%s\n%s\n%d" % (name, os_name, int(ts))).encode("utf-8")
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def join_fresh(ts, now=None):
+    now = int(time.time()) if now is None else int(now)
+    try:
+        ts = int(ts)
+    except (TypeError, ValueError):
+        return False
+    age = now - ts
+    return 0 <= age <= JOIN_TTL
+
+
+def host_is_loopback(host):
+    text = str(host or "")
+    if text.startswith("["):
+        name = text[1:].split("]", 1)[0]
+    elif text.count(":") == 1:
+        name = text.split(":", 1)[0]
+    else:
+        name = text
+    return name in ("localhost", "::1") or name.startswith("127.")
+
+
+def public_origin(host, tls):
+    host = (host or "").strip()
+    if not _HOST_RE.fullmatch(host) or ".." in host or host.startswith(".") or host.endswith("."):
+        raise ApiError("无法确定面板地址", 500)
+    return "%s://%s" % ("https" if tls else "http", host)
+
+
+def join_shell(url):
+    if not re.fullmatch(
+            r"https?://[A-Za-z0-9.:_\-\[\]]+/wgaio-join/[A-Za-z0-9_-]+\?t=\d+&k=[0-9a-f]{64}&os=(linux|mac)",
+            url):
+        raise ApiError("加入地址无法放进命令", 500)
+    # 外层单引号交给用户的 shell。签名只活 60 秒，私钥在临时文件里，脚本结束就删。
+    return (
+        "sudo sh -c 'umask 077; set -eu; f=$(mktemp); trap \"rm -f $f\" EXIT; "
+        "curl -fsSL \"%s\" -o \"$f\"; sh \"$f\"'"
+    ) % url
+
+
+def _join_warn(conf):
+    if "0.0.0.0/0" not in conf:
+        return ""
+    return ('echo "这是全隧道：默认路由会改走 VPN。如果这是远程 SSH 的机器，先确认还能连上。" >&2\n')
+
+
+_LINUX_JOIN = """#!/bin/sh
+set -eu
+if [ "$(id -u)" -ne 0 ]; then
+  echo "请用 sudo 执行这条命令" >&2
+  exit 1
+fi
+__WARN__if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
+  :
+else
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y wireguard
+    if ! command -v resolvconf >/dev/null 2>&1 && ! command -v resolvectl >/dev/null 2>&1; then
+      apt-get install -y openresolv || apt-get install -y resolvconf || true
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y wireguard-tools
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm wireguard-tools openresolv
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache wireguard-tools openresolv
+  else
+    echo "认不出包管理器。请先安装 wireguard-tools，再重新复制一条命令。" >&2
+    exit 1
+  fi
+fi
+install -d -m 700 /etc/wireguard
+umask 077
+cat > /etc/wireguard/wgaio.conf <<'WGAIO_CONF'
+__CONF__WGAIO_CONF
+chmod 600 /etc/wireguard/wgaio.conf
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl enable wg-quick@wgaio
+  systemctl restart wg-quick@wgaio
+else
+  if wg show wgaio >/dev/null 2>&1; then
+    wg-quick down wgaio || true
+  fi
+  wg-quick up wgaio
+fi
+echo "已加入内网，接口 wgaio"
+"""
+
+_MAC_JOIN = """#!/bin/sh
+set -eu
+if [ "$(id -u)" -ne 0 ]; then
+  echo "请用 sudo 执行这条命令" >&2
+  exit 1
+fi
+__WARN__BREW=""
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+  if [ -x "$b" ]; then
+    BREW=$b
+    break
+  fi
+done
+if [ -z "$BREW" ]; then
+  echo "没有找到 Homebrew。请到 App Store 安装 WireGuard，再用面板里的下载配置导入。" >&2
+  exit 1
+fi
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  sudo -u "$SUDO_USER" -H "$BREW" install wireguard-tools
+else
+  echo "请用普通用户的 sudo 执行，Homebrew 不适合直接用 root 跑。" >&2
+  exit 1
+fi
+install -d -m 700 /etc/wireguard
+umask 077
+cat > /etc/wireguard/wgaio.conf <<'WGAIO_CONF'
+__CONF__WGAIO_CONF
+chmod 600 /etc/wireguard/wgaio.conf
+WGQ=""
+for q in /opt/homebrew/bin/wg-quick /usr/local/bin/wg-quick; do
+  if [ -x "$q" ]; then
+    WGQ=$q
+    break
+  fi
+done
+if [ -z "$WGQ" ]; then
+  echo "已写好配置，但找不到 wg-quick。" >&2
+  exit 1
+fi
+WG=""
+for w in /opt/homebrew/bin/wg /usr/local/bin/wg; do
+  if [ -x "$w" ]; then
+    WG=$w
+    break
+  fi
+done
+if [ -n "$WG" ] && "$WG" show wgaio >/dev/null 2>&1; then
+  "$WGQ" down wgaio || true
+fi
+"$WGQ" up wgaio
+echo "已加入内网，接口 wgaio。Mac 重启后不会自动连接，需要再执行一次，或改用 App Store 的 WireGuard。"
+"""
+
+
+def build_join_script(os_name, conf):
+    if os_name not in JOIN_OS:
+        raise ApiError("系统只能是 linux 或 mac", 400)
+    text = str(conf or "").replace("\r\n", "\n").replace("\r", "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+    if (_JOIN_MARK in text.splitlines()) or ("__CONF__" in text) or ("__WARN__" in text):
+        raise ApiError("配置内容无法放进加入脚本", 500)
+    tmpl = _LINUX_JOIN if os_name == "linux" else _MAC_JOIN
+    tmpl = tmpl.replace("\r\n", "\n").replace("\r", "\n")
+    return tmpl.replace("__WARN__", _join_warn(text)).replace("__CONF__", text)
+
+
+def issue_join(name, os_name, cfg, origin, now=None):
+    name = normalize_name(name)
+    if os_name not in JOIN_OS:
+        raise ApiError("系统只能是 linux 或 mac", 400)
+    meta = load_client_meta(name)
+    if not meta:
+        raise ApiError("找不到该设备的配置", 404)
+    if meta.get("disabled"):
+        raise ApiError("设备已停用，先启用再生成加入命令", 400)
+    conf = show_conf(name)
+    if "PrivateKey" not in conf:
+        raise ApiError("没有这份设备的私钥，不能生成加入命令", 400)
+    token_hash = str(cfg.get("panel_token_hash") or "")
+    if not token_hash:
+        raise ApiError("面板令牌未设置", 500)
+    now = int(time.time()) if now is None else int(now)
+    mac = join_mac(token_hash, name, os_name, now)
+    url = "%s/wgaio-join/%s?t=%d&k=%s&os=%s" % (str(origin).rstrip("/"), name, now, mac, os_name)
+    build_join_script(os_name, conf)
+    return {
+        "ok": True,
+        "command": join_shell(url),
+        "expires_in": JOIN_TTL,
+        "os": os_name,
+        "full": "0.0.0.0/0" in conf,
+        "plain_http": str(origin).startswith("http://"),
+        "loopback": host_is_loopback(str(origin).split("://", 1)[-1]),
+    }
+
+
+def render_join_script(name, os_name, ts, key, cfg, now=None):
+    """验签通过才返回脚本。失败一律当失效，不区分过期、签名错或没有这台设备。"""
+    try:
+        name = normalize_name(name)
+    except ApiError:
+        return None
+    if os_name not in JOIN_OS or not re.fullmatch(r"\d{1,12}", str(ts or "")):
+        return None
+    token_hash = str((cfg or {}).get("panel_token_hash") or "")
+    if not token_hash:
+        return None
+    ts_i = int(ts)
+    expected = join_mac(token_hash, name, os_name, ts_i)
+    given = str(key or "")
+    if len(given) == len(expected):
+        signed = hmac.compare_digest(expected, given)
+    else:
+        hmac.compare_digest(expected, expected)
+        signed = False
+    if not signed:
+        return None
+    if not join_fresh(ts_i, now):
+        return None
+    try:
+        meta = load_client_meta(name)
+        conf = show_conf(name)
+    except ApiError:
+        return None
+    if not meta or meta.get("disabled") or "PrivateKey" not in conf:
+        return None
+    try:
+        return build_join_script(os_name, conf)
+    except ApiError:
+        return None
+
+
 PAGES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -1487,8 +1724,37 @@ class PanelHandler(BaseHTTPRequestHandler):
             return cfg
         return self.server.app_cfg
 
+    def _request_origin(self):
+        return public_origin(self.headers.get("Host"), self._cookie_secure())
+
+    def _serve_join(self, method):
+        path = urlparse(self.path).path or "/"
+        if path != "/wgaio-join" and not path.startswith("/wgaio-join/"):
+            return False
+        if method != "GET" or len(self.path) > 512:
+            self._send(403, _JOIN_DENIED, "text/plain; charset=utf-8")
+            return True
+        u = urlparse(self.path)
+        name = unquote(path[len("/wgaio-join/"):].strip("/"))
+        q = parse_qs(u.query, keep_blank_values=True)
+        script = None
+        if name and "/" not in name:
+            script = render_join_script(
+                name,
+                (q.get("os") or [""])[0],
+                (q.get("t") or [""])[0],
+                (q.get("k") or [""])[0],
+                self._cfg())
+        if not script:
+            self._send(403, _JOIN_DENIED, "text/plain; charset=utf-8")
+            return True
+        self._send(200, script, "text/x-shellscript; charset=utf-8")
+        return True
+
     def _handle(self, method):
         try:
+            if self._serve_join(method):
+                return
             route = self._route_path()
             if route is None:
                 self._send(404, "Not Found\n", "text/plain; charset=utf-8")
@@ -1548,6 +1814,8 @@ class PanelHandler(BaseHTTPRequestHandler):
     # POST   /api/peers/<name>/disable[?force=1]
     # POST   /api/peers/<name>/enable
     # POST   /api/peers/<name>/rotate    -> {ok, peer, conf}
+    # POST   /api/peers/<name>/join?os=  -> {ok, command, expires_in}  命令 60 秒内有效
+    # GET    /wgaio-join/<name>?t&k&os=  -> 安装脚本（不经过面板入口，只认 60 秒签名）
     def _api(self, method, parts, u):
         cfg = self._cfg()
         if parts == ["api", "logout"] and method == "POST":
@@ -1610,6 +1878,11 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             meta, conf_text = rotate_peer(parts[2], cfg)
             self._json({"ok": True, "peer": meta, "conf": conf_text})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "peers"] and parts[3] == "join" \
+                and method == "POST":
+            os_name = parse_qs(u.query).get("os", ["linux"])[0]
+            self._json(issue_join(parts[2], os_name, cfg, self._request_origin()))
             return
         raise ApiError("接口不存在", 404)
 

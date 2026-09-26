@@ -121,7 +121,7 @@ tr.disabled td { opacity: 0.55; }
 #modal-mask.show { display: flex; }
 .modal-box {
   background: var(--bg); border: 1px solid var(--border-dark);
-  width: min(560px, 92vw); max-height: 86vh; overflow: auto;
+  width: min(640px, 94vw); max-height: 86vh; overflow: auto;
 }
 .modal-box h3 {
   background: var(--surface); border-bottom: 1px solid var(--border);
@@ -132,7 +132,9 @@ tr.disabled td { opacity: 0.55; }
   background: var(--surface); border: 1px solid var(--border);
   padding: 8px; font-size: 11px; overflow: auto; white-space: pre-wrap; word-break: break-all;
 }
-.modal-ops { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-ops { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.modal-ops.start { justify-content: flex-start; }
+.join-box { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
 .hint { font-size: 11px; color: var(--muted); word-break: break-all; white-space: pre-wrap; }
 .warn-text { color: var(--danger); font-size: 12px; }
 
