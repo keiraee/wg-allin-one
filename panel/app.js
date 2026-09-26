@@ -44,8 +44,13 @@ function esc(s) {
 
 function showLogin() { $("login-mask").style.display = "flex"; }
 
+function panelUrl(path) {
+  const rel = String(path).replace(/^\//, "");
+  return new URL(rel, new URL(".", window.location.href)).href;
+}
+
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  const res = await fetch(panelUrl(path), opts);
   if (res.status === 401) {
     showLogin();
     throw new Error("未登录或会话过期");
@@ -199,7 +204,7 @@ function copyConf() {
 
 function dlConf(name) {
   const a = document.createElement("a");
-  a.href = "/api/peers/" + encodeURIComponent(name) + "/conf";
+  a.href = panelUrl("/api/peers/" + encodeURIComponent(name) + "/conf");
   a.download = name + ".conf";
   document.body.appendChild(a);
   a.click();

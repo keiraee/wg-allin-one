@@ -197,6 +197,9 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(cfg["panel_bind"], "0.0.0.0")
         self.assertTrue(cfg["tls_cert"].endswith("/certs/wgaio.crt"), cfg["tls_cert"])
         self.assertTrue(cfg["tls_key"].endswith("/certs/wgaio.key"), cfg["tls_key"])
+        self.assertEqual(cfg["tls_mode"], "acme")
+        self.assertRegex(cfg["panel_path"], r"^wgaio-[0-9a-f]{12}$")
+        self.assertIn("/" + cfg["panel_path"] + "/", r.stdout)
         self.assertNotIn("/opt/wgaio/", cfg["tls_cert"])
         self.assertIn("203-0-113-7.sslip.io", r.stdout)
 
@@ -208,13 +211,15 @@ class WizardTests(unittest.TestCase):
             "\n"                      # client_dns 默认
             "\n"                      # lan_cidrs 默认空
             "2\n"                     # 面板访问: 公网
-            "2\n"                     # HTTPS: 纯 HTTP
+            "3\n"                     # HTTPS: 纯 HTTP
             "\n"                      # panel_port 默认
             "\n")                     # 流量模式默认
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["panel_bind"], "0.0.0.0")
         self.assertEqual(cfg.get("tls_cert", ""), "")
+        self.assertEqual(cfg.get("tls_mode", ""), "")
+        self.assertRegex(cfg["panel_path"], r"^wgaio-[0-9a-f]{12}$")
         self.assertIn("203-0-113-7.sslip.io", r.stdout)
 
     def test_wizard_eof_rejects_empty_endpoint(self):

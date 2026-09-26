@@ -68,6 +68,29 @@ class HttpTestBase(unittest.TestCase):
 
 
 class AuthTests(HttpTestBase):
+    def test_secret_path_hides_root(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.cfg["panel_path"] = "wgaio-secret"
+        self.httpd = core.start_server(self.cfg)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        st, _, body = self.req("GET", "/")
+        self.assertEqual(st, 404)
+        self.assertNotIn("doctype", body)
+        st, _, body = self.req("POST", "/api/login", {"token": "topsecret"})
+        self.assertEqual(st, 404)
+        st, hd, body = self.req("GET", "/wgaio-secret/")
+        self.assertEqual(st, 200, body)
+        self.assertIn("text/html", hd.get("Content-Type", ""))
+        st, hd, body = self.req("GET", "/wgaio-secret/static/style.css")
+        self.assertEqual(st, 200, body)
+        st, hd, body = self.req("POST", "/wgaio-secret/api/login", {"token": "topsecret"})
+        self.assertEqual(st, 200, body)
+        self.assertIn("Path=/wgaio-secret/", hd.get("Set-Cookie", ""))
+        st, _, body = self.req("GET", "/other/api/login")
+        self.assertEqual(st, 404)
+
     def test_static_no_auth(self):
         st, hd, body = self.req("GET", "/")
         self.assertEqual(st, 200)

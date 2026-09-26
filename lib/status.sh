@@ -17,6 +17,21 @@ cmd_status() {
   else
     log "面板服务: (无 systemd, 无法查询)"
   fi
+  if [ -f "$WGAIO_ROOT/config.json" ]; then
+    local py url
+    py="$(find_python)"
+    url="$("$py" -c 'import json,os,sys
+d=json.load(open(sys.argv[1],encoding="utf-8"))
+cert=d.get("tls_cert") or ""
+scheme="https" if cert and os.path.isfile(cert) else "http"
+host=d.get("tls_cn") or d.get("panel_bind") or "127.0.0.1"
+port=d.get("panel_port") or 8888
+path=str(d.get("panel_path") or "").strip().strip("/")
+suffix=("/"+path+"/") if path else "/"
+print("%s://%s:%s%s" % (scheme, host, port, suffix))' "$WGAIO_ROOT/config.json")"
+    log "面板地址: $url"
+    log "只打开这一整条。只开端口会看到 404"
+  fi
   log "设备列表:"
   run_core user list || warn "设备列表读取失败(可能还没装完)"
 }

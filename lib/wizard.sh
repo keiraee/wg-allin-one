@@ -175,14 +175,15 @@ run_wizard() {
     fi
     tls_cn="$domain"
     log "面板将使用自动域名管理: $domain"
-    printf 'HTTPS 加密(推荐; 浏览器会提示证书不受信, 点继续即可):\n' >&2
-    printf '  1) 生成自签证书(推荐)\n' >&2
-    printf '  2) 纯 HTTP\n' >&2
-    https_choice="$(ask '选 1 或 2' '1')"
+    printf 'HTTPS:\n' >&2
+    printf '  1) 申请 Let'"'"'s Encrypt 正式证书(推荐, 浏览器不再提示不受信)\n' >&2
+    printf '  2) 自签证书(浏览器会提示不受信)\n' >&2
+    printf '  3) 纯 HTTP\n' >&2
+    https_choice="$(ask '选 1、2 或 3' '1')"
     case "$https_choice" in
-      1) ;;
-      2) warn "已选纯 HTTP: 令牌明文传输, 公网环境可能被窃听, 强烈建议改用 HTTPS" ;;
-      *) die "无效选择, 请输入 1 或 2" ;;
+      1|2) ;;
+      3) warn "已选纯 HTTP: 令牌明文传输, 公网环境可能被窃听, 强烈建议改用 HTTPS" ;;
+      *) die "无效选择, 请输入 1、2 或 3" ;;
     esac
   fi
 
@@ -208,18 +209,27 @@ run_wizard() {
   token="$("$py" -c 'import secrets,string as s; a=s.ascii_letters+s.digits; g=lambda n:"".join(secrets.choice(a) for _ in range(n)); print("wgaio-" + "-".join(g(5) for _ in range(4)))')"
   hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
-  local tls_cert="" tls_key="" tls_root
+  local tls_cert="" tls_key="" tls_root tls_mode="" panel_path
   tls_root="${WGAIO_CONFIG_DIR:-$WGAIO_ROOT}"
+  panel_path="${WGAIO_PANEL_PATH:-}"
+  if ! printf '%s' "$panel_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'; then
+    panel_path="wgaio-$("$py" -c 'import secrets; print(secrets.token_hex(6))')"
+  fi
   if [ "$https_choice" = "1" ]; then
+    tls_mode="acme"
+    tls_cert="${tls_root}/certs/wgaio.crt"
+    tls_key="${tls_root}/certs/wgaio.key"
+  elif [ "$https_choice" = "2" ]; then
+    tls_mode="self"
     tls_cert="${tls_root}/certs/wgaio.crt"
     tls_key="${tls_root}/certs/wgaio.key"
   fi
 
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
         "$panel_bind" "$panel_port" "$def_mode" "$hash" \
-        "$tls_cert" "$tls_key" "$tls_cn" <<'PY'
+        "$tls_cert" "$tls_key" "$tls_cn" "$tls_mode" "$panel_path" <<'PY'
 import json, os, re, sys
-vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cert, tls_key, tls_cn = sys.argv[1:]
+vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cert, tls_key, tls_cn, tls_mode, panel_path = sys.argv[1:]
 root = os.environ.get("WGAIO_ROOT", ".")
 out_root = os.environ.get("WGAIO_CONFIG_DIR") or root
 sys.path.insert(0, os.path.join(root, "lib"))
@@ -247,9 +257,12 @@ cfg = {
     "panel_port": panel_port_i,
     "panel_token_hash": thash,
     "default_mode": mode,
+    "panel_path": panel_path,
 }
 if tls_cn:
     cfg["tls_cn"] = tls_cn
+if tls_mode:
+    cfg["tls_mode"] = tls_mode
 if tls_cert:
     cfg["tls_cert"] = tls_cert
     cfg["tls_key"] = tls_key
@@ -265,11 +278,15 @@ PY
   printf '\n===== 面板登录密码(只显示这一次, 请立即保存) =====\n%s\n=====================================================\n' "$token"
 
   if [ "$access_choice" = "2" ]; then
-    if [ "$https_choice" = "1" ]; then
-      log "面板访问地址: https://${domain}:${panel_port}"
-    else
-      log "面板访问地址: http://${domain}:${panel_port}"
+    local scheme="http"
+    [ -n "$tls_cert" ] && scheme="https"
+    log "面板访问地址: ${scheme}://${domain}:${panel_port}/${panel_path}/"
+    log "只打开这一整条。只开端口 ${panel_port} 会看到 404"
+    if [ "$tls_mode" = "acme" ]; then
+      log "安装时会申请 Let's Encrypt 证书, 请先放行 TCP 80, 并保证 80 没被别的程序占用"
     fi
+  else
+    log "面板只在 VPN 内打开, 地址后面带 /${panel_path}/"
   fi
   log "配置已写入 config.json"
 }

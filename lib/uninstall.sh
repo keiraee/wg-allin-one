@@ -11,7 +11,7 @@ cmd_uninstall() {
       --keep-clients) keep=1 ;;
     esac
   done
-  log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json, certs/, snapshots/, .wgaio-track, /etc/sysctl.d/99-wgaio.conf$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
+  log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json, certs/, snapshots/, .wgaio-track, Let's Encrypt 续期钩子, /etc/sysctl.d/99-wgaio.conf$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
   log "程序文件(lib/ panel/ wgaio.sh bin/)保留, 便于重装; 不会动用户自有的 WireGuard 配置"
   log "本工具生成的 wg0.conf(含 wgaio-managed 标记)会停掉并删除"
   log "用法提示: 可选参数 --keep-clients | --dry-run"
@@ -24,6 +24,7 @@ cmd_uninstall() {
     rm -f /etc/systemd/system/wgaio-panel.service
   fi
   rm -f /usr/local/bin/wgaio
+  rm -f /etc/letsencrypt/renewal-hooks/deploy/wgaio
   rm -f /etc/sysctl.d/99-wgaio.conf
   rm -rf "${WGAIO_ROOT}/certs" "${WGAIO_ROOT}/snapshots"
   [ "$keep" -eq 0 ] && rm -rf "${WGAIO_ROOT}/clients"

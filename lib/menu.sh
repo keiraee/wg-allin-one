@@ -8,6 +8,7 @@
 . "$ROOT/lib/status.sh"
 . "$ROOT/lib/logs.sh"
 . "$ROOT/lib/uninstall.sh"
+. "$ROOT/lib/install.sh"
 
 menu_read() {
   local prompt="$1" ans=""
@@ -56,6 +57,7 @@ wgaio ${ver}  管理菜单
  12) 重启面板
  13) 面板状态
  14) 面板日志
+ 17) 重新申请 HTTPS 证书
 
 ── 其他 ──────────────────────────
  15) 回滚最近快照
@@ -191,6 +193,7 @@ cmd_menu() {
       12) menu_run cmd_panel restart ;;
       13) menu_run cmd_panel status ;;
       14) menu_run menu_logs ;;
+      17) menu_run cmd_cert ;;
       15) menu_run cmd_rollback ;;
       16) menu_run menu_uninstall ;;
       99) exit 0 ;;

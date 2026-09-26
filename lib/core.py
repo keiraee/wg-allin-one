@@ -49,7 +49,10 @@ DEFAULTS = {
     "tls_cert": "",
     "tls_key": "",
     "tls_cn": "",
+    "tls_mode": "",
+    "panel_path": "",
 }
+PANEL_PATH_RE = re.compile(r"^[A-Za-z0-9_-]{4,80}$")
 
 
 class ApiError(Exception):
@@ -111,6 +114,12 @@ def validate_config(cfg):
                 _ip_to_int(pb)
             except ValueError:
                 raise ApiError("panel_bind 必须是 IPv4 或 0.0.0.0: %s" % pb)
+    mode_tls = str(cfg.get("tls_mode") or "").strip()
+    if mode_tls and mode_tls not in ("acme", "self"):
+        raise ApiError("tls_mode 只能是 acme 或 self")
+    ppath = str(cfg.get("panel_path") or "").strip().strip("/")
+    if ppath and not PANEL_PATH_RE.match(ppath):
+        raise ApiError("panel_path 不合法: %s" % ppath)
 
 
 def _ip_to_int(ip):
@@ -893,9 +902,10 @@ def main(argv=None):
         return 2
 
 
-def session_cookie(value, max_age, secure=False):
+def session_cookie(value, max_age, secure=False, path="/"):
     flag = "; Secure" if secure else ""
-    return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=/; Max-Age=%d%s" % (value, max_age, flag)
+    return "wgaio_sess=%s; HttpOnly; SameSite=Strict; Path=%s; Max-Age=%d%s" % (
+        value, path or "/", max_age, flag)
 
 
 def hash_token(plain):
@@ -933,7 +943,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         extra = dict(extra or {})
         if getattr(self, "_refresh_sess", None) and "Set-Cookie" not in extra:
             extra["Set-Cookie"] = session_cookie(
-                self._refresh_sess, SESSION_TTL, self._cookie_secure())
+                self._refresh_sess, SESSION_TTL, self._cookie_secure(), self._cookie_path())
         self.send_response_only(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
@@ -984,6 +994,29 @@ class PanelHandler(BaseHTTPRequestHandler):
         import ssl
         return isinstance(getattr(self, "connection", None), ssl.SSLSocket)
 
+    def _panel_prefix(self):
+        raw = str(self._cfg().get("panel_path") or "").strip().strip("/")
+        if not PANEL_PATH_RE.match(raw):
+            return ""
+        return "/" + raw
+
+    def _cookie_path(self):
+        prefix = self._panel_prefix()
+        return (prefix + "/") if prefix else "/"
+
+    def _route_path(self):
+        """面板实际路径。没带对入口码时返回 None，调用方回 404。"""
+        path = urlparse(self.path).path or "/"
+        prefix = self._panel_prefix()
+        if not prefix:
+            return path
+        if path == prefix:
+            return "REDIRECT"
+        if path.startswith(prefix + "/"):
+            rest = path[len(prefix):]
+            return rest if rest.startswith("/") else "/" + rest
+        return None
+
     def _authed(self):
         s = self._session()
         if not s:
@@ -1013,10 +1046,20 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def _handle(self, method):
         try:
+            route = self._route_path()
+            if route is None:
+                self._send(404, "Not Found\n", "text/plain; charset=utf-8")
+                return
+            if route == "REDIRECT":
+                self.send_response(308)
+                self.send_header("Location", self._panel_prefix() + "/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             u = urlparse(self.path)
-            parts = [unquote(x) for x in u.path.split("/") if x]
-            if u.path in PAGES and method == "GET":
-                fname, ctype = PAGES[u.path]
+            parts = [unquote(x) for x in route.split("/") if x]
+            if route in PAGES and method == "GET":
+                fname, ctype = PAGES[route]
                 self._send(200, (BASE / "panel" / fname).read_bytes(), ctype)
                 return
             if parts[:2] == ["api", "login"] and method == "POST":
@@ -1035,7 +1078,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                     while len(_sessions) > 1000:
                         _sessions.popitem(last=False)
                 self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
-                           extra={"Set-Cookie": session_cookie(sess, SESSION_TTL, self._cookie_secure())})
+                           extra={"Set-Cookie": session_cookie(
+                               sess, SESSION_TTL, self._cookie_secure(), self._cookie_path())})
                 return
             if parts[:1] == ["api"]:
                 if not self._authed():
@@ -1067,7 +1111,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if s:
                     _sessions.pop(s, None)
             self._send(200, json.dumps({"ok": True}, ensure_ascii=False),
-                       extra={"Set-Cookie": session_cookie("", 0, self._cookie_secure())})
+                       extra={"Set-Cookie": session_cookie(
+                           "", 0, self._cookie_secure(), self._cookie_path())})
             return
         if parts == ["api", "status"] and method == "GET":
             self._json(full_status(cfg))
@@ -1130,9 +1175,40 @@ def start_server(cfg):
     return httpd
 
 
+def ensure_panel_path(cfg):
+    """旧配置没有入口码时补一个并写回，避免升级后面板还裸露在端口根上。"""
+    raw = str(cfg.get("panel_path") or "").strip().strip("/")
+    if PANEL_PATH_RE.match(raw):
+        return cfg
+    cfg = dict(cfg)
+    cfg["panel_path"] = "wgaio-" + secrets.token_hex(6)
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        data["panel_path"] = cfg["panel_path"]
+        CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                               encoding="utf-8")
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+        print("[wgaio] 警告: 面板入口码没能写入配置: %s" % exc, file=sys.stderr)
+    else:
+        try:
+            os.chmod(CONFIG_PATH, 0o600)
+        except OSError:
+            pass
+    print("[wgaio] 已生成面板入口码。只开完整地址，单独打开端口会看到 404", flush=True)
+    return cfg
+
+
+def panel_url(cfg, scheme, host, port):
+    path = str(cfg.get("panel_path") or "").strip().strip("/")
+    suffix = ("/" + path + "/") if path else "/"
+    name = cfg.get("tls_cn") or host
+    return "%s://%s:%d%s" % (scheme, name, port, suffix)
+
+
 def serve(cfg=None):
-    cfg = cfg or load_config()
+    cfg = ensure_panel_path(cfg or load_config())
     httpd = start_server(cfg)
+    httpd.app_cfg = cfg
     httpd.app_cfg_path = CONFIG_PATH
     tls_cert = cfg.get("tls_cert", "")
     tls_key = cfg.get("tls_key", "")
@@ -1143,11 +1219,7 @@ def serve(cfg=None):
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
     scheme = "https" if (tls_cert and tls_key and Path(tls_cert).is_file()) else "http"
     host, port = httpd.server_address[0], httpd.server_address[1]
-    tls_cn = cfg.get("tls_cn", "")
-    if tls_cn:
-        print("wgaio 面板已启动: %s://%s:%d (令牌登录)" % (scheme, tls_cn, port), flush=True)
-    else:
-        print("wgaio 面板已启动: %s://%s:%d (令牌登录)" % (scheme, host, port), flush=True)
+    print("wgaio 面板已启动: %s (令牌登录)" % panel_url(cfg, scheme, host, port), flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
