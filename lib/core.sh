@@ -7,7 +7,15 @@ wgaio_root() { cd "$(dirname "${BASH_SOURCE[1]}")" && pwd; }
 
 log()  { printf '[wgaio] %s\n' "$*"; }
 warn() { printf '[wgaio] 警告: %s\n' "$*" >&2; }
-die()  { printf '[wgaio] 错误: %s\n' "$1" >&2; exit "${2:-1}"; }
+die()  {
+  # 升级下载到一半失败时，调用方把临时目录放在这里，退出前清掉。
+  if [ -n "${WGAIO_CLEAN_DIR:-}" ]; then
+    rm -rf "$WGAIO_CLEAN_DIR"
+    unset WGAIO_CLEAN_DIR
+  fi
+  printf '[wgaio] 错误: %s\n' "$1" >&2
+  exit "${2:-1}"
+}
 
 find_python() {
   local candidates=("python3" "python") cmd

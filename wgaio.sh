@@ -29,27 +29,59 @@ if [ "$need_bootstrap" = "1" ]; then
   fi
   command -v curl >/dev/null 2>&1 || { printf '[wgaio] 错误: 需要 curl\n' >&2; exit 1; }
   mkdir -p "$DEST"
-  REF="${WGAIO_REF:-main}"
-  # 稳定版=latest release；main=抢先试用。能解析提交就按提交下载，避免分支缓存。
+  # 先下到临时目录并校验，通过后才覆盖安装目录。失败不会改掉正在用的套件。
+  work="$(mktemp -d)"
+  boot_fail() {
+    [ -n "${work:-}" ] && rm -rf "$work"
+    printf '[wgaio] 错误: %s\n' "$1" >&2
+    exit 1
+  }
+  boot_ref_ok() {
+    case "${1:-}" in
+      ''|-*|*[!A-Za-z0-9._/-]*|*..*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
   slug="${WGAIO_REPO:-keiraee/wg-allin-one}"
+  [[ "$slug" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || boot_fail "WGAIO_REPO 不合法"
+  REF="${WGAIO_REF:-main}"
+  boot_ref_ok "$REF" || boot_fail "升级引用不合法"
+  # 稳定版=latest release；main=抢先试用。能解析提交就按提交下载，避免分支缓存。
   if [ "$REF" = "latest" ]; then
-    payload="$(curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' \
-      "https://api.github.com/repos/${slug}/releases/latest")" \
-      || { printf '[wgaio] 错误: 还没有正式版 Release，请去掉 WGAIO_REF=latest 改用 main\n' >&2; exit 1; }
-    REF="$(printf '%s' "$payload" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-    [ -n "$REF" ] || { printf '[wgaio] 错误: latest release 为空\n' >&2; exit 1; }
+    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+      -H 'Cache-Control: no-cache' -o "$work/release.json" -w '%{http_code}' \
+      "https://api.github.com/repos/${slug}/releases/latest" || true)"
+    if [ "$code" = "404" ]; then
+      boot_fail "还没有正式版 Release，请去掉 WGAIO_REF=latest 改用 main"
+    fi
+    [ "$code" = "200" ] || boot_fail "访问 GitHub 失败 (HTTP ${code})"
+    release_payload="$(cat "$work/release.json" || true)"
+    if [[ "$release_payload" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+      REF="${BASH_REMATCH[1]}"
+    else
+      REF=""
+    fi
+    [ -n "$REF" ] || boot_fail "latest release 为空"
+    boot_ref_ok "$REF" || boot_fail "latest release 的 tag 不合法"
     export WGAIO_PERSIST_TRACK="latest"
   else
     export WGAIO_PERSIST_TRACK="$REF"
   fi
-  if printf '%s' "$REF" | grep -qiE '^[0-9a-f]{40}$'; then
+  if [[ "$REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
     export WGAIO_FETCH_COMMIT="$REF"
     archive="https://github.com/${slug}/archive/${REF}.tar.gz"
   else
-    payload="$(curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' \
+    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+      -H 'Cache-Control: no-cache' -o "$work/commit.json" -w '%{http_code}' \
       "https://api.github.com/repos/${slug}/commits/${REF}" || true)"
-    sha="$(printf '%s' "$payload" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -1 | grep -oE '[0-9a-fA-F]{40}' | tr 'A-F' 'a-f' || true)"
-    if printf '%s' "$sha" | grep -qiE '^[0-9a-f]{40}$'; then
+    sha=""
+    if [ "$code" = "200" ]; then
+      commit_payload="$(cat "$work/commit.json" || true)"
+      if [[ "$commit_payload" =~ \"sha\"[[:space:]]*:[[:space:]]*\"([0-9a-fA-F]{40})\" ]]; then
+        sha="${BASH_REMATCH[1],,}"
+      fi
+    fi
+    if [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
       printf '[wgaio] 钉住提交: %s → %s\n' "$REF" "${sha:0:12}"
       export WGAIO_FETCH_COMMIT="$sha"
       archive="https://github.com/${slug}/archive/${sha}.tar.gz"
@@ -61,14 +93,79 @@ if [ "$need_bootstrap" = "1" ]; then
       esac
     fi
   fi
-  curl -fsSL --retry 3 --retry-delay 2 -H 'Cache-Control: no-cache' "$archive" -o "$DEST/.wgaio.tgz" \
-    || { printf '[wgaio] 错误: 套件下载失败\n' >&2; exit 1; }
-  tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1 --warning=no-timestamp \
-    || tar xzf "$DEST/.wgaio.tgz" -C "$DEST" --strip-components=1 \
-    || { printf '[wgaio] 错误: 套件解包失败\n' >&2; exit 1; }
-  rm -f "$DEST/.wgaio.tgz"
-  printf '[wgaio] 套件就绪, 继续安装...\n'
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 \
+    -H 'Cache-Control: no-cache' "$archive" -o "$work/src.tgz" \
+    || boot_fail "套件下载失败"
+  stage="$work/tree"
+  mkdir -p "$stage"
+  tar xzf "$work/src.tgz" -C "$stage" --strip-components=1 --warning=no-timestamp \
+    || tar xzf "$work/src.tgz" -C "$stage" --strip-components=1 \
+    || boot_fail "套件解包失败"
+  if command -v sha256sum >/dev/null 2>&1; then
+    ( cd "$stage" && LC_ALL=C sha256sum -c SHA256SUMS ) || boot_fail "下载的套件校验失败, 已保留原安装目录"
+  else
+    printf '[wgaio] 警告: 没有 sha256sum, 跳过下载校验\n' >&2
+  fi
+  new_sum=""
+  old_sum=""
+  if command -v sha256sum >/dev/null 2>&1 && [ -f "$stage/SHA256SUMS" ]; then
+    new_sum="$(sha256sum "$stage/SHA256SUMS" | awk '{print $1}')"
+  fi
+  if [ -f "$DEST/.wgaio-track" ]; then
+    old_sum="$(awk -F= '$1=="WGAIO_MODULES_SHA"{gsub(/\r/,""); print substr($0, index($0,"=")+1); exit}' "$DEST/.wgaio-track" || true)"
+  fi
+  printf '[wgaio] 上次哈希: %s\n' "${old_sum:0:12}"
+  printf '[wgaio] 本次哈希: %s\n' "${new_sum:0:12}"
+  skip_copy=0
+  if [ -n "$old_sum" ] && [ "$old_sum" = "$new_sum" ] \
+      && [ -f "$DEST/SHA256SUMS" ] && command -v sha256sum >/dev/null 2>&1 \
+      && ( cd "$DEST" && LC_ALL=C sha256sum -c SHA256SUMS >/dev/null 2>&1 ); then
+    printf '[wgaio] 哈希未变化, 保留现有套件\n'
+    skip_copy=1
+  fi
+  boot_apply() {
+    install -d -m 755 "$DEST/bin" "$DEST/lib" "$DEST/panel" || return 1
+    cp -f "$stage/wgaio.sh" "$DEST/wgaio.sh" || return 1
+    cp -f "$stage/SHA256SUMS" "$DEST/SHA256SUMS" || return 1
+    cp -f "$stage"/lib/* "$DEST/lib/" || return 1
+    if compgen -G "$stage/bin/*" >/dev/null; then
+      cp -f "$stage"/bin/* "$DEST/bin/" || return 1
+    fi
+    if compgen -G "$stage/panel/*" >/dev/null; then
+      cp -f "$stage"/panel/* "$DEST/panel/" || return 1
+    fi
+  }
+  if [ "$skip_copy" -eq 0 ]; then
+    if [ -f "$DEST/wgaio.sh" ]; then
+      mkdir -p "$DEST/snapshots"
+      snap_items=()
+      for item in wgaio.sh SHA256SUMS lib panel bin .wgaio-track; do
+        [ -e "$DEST/$item" ] && snap_items+=("$item")
+      done
+      if [ "${#snap_items[@]}" -gt 0 ]; then
+        tar czf "$DEST/snapshots/wgaio-bootstrap-$(date +%Y%m%d-%H%M%S).tar.gz" -C "$DEST" "${snap_items[@]}" \
+          || boot_fail "覆盖前快照失败, 已保留原安装目录"
+      fi
+    fi
+    boot_apply || boot_fail "写入安装目录失败"
+  fi
+  ver="$(awk -F= '/^VERSION=/{gsub(/["\r]/,"",$2); print $2; exit}' "$DEST/wgaio.sh" || true)"
+  [ -n "$ver" ] || ver="$VERSION"
+  old_umask="$(umask)"
+  umask 077
+  cat > "$DEST/.wgaio-track" <<EOF
+WGAIO_TRACK_REF=${WGAIO_PERSIST_TRACK}
+WGAIO_REPO_SHA=${WGAIO_FETCH_COMMIT:-}
+WGAIO_MODULES_SHA=${new_sum}
+WGAIO_VERSION=${ver}
+EOF
+  chmod 600 "$DEST/.wgaio-track" 2>/dev/null || true
+  umask "$old_umask"
+  rm -rf "$work"
+  printf '[wgaio] 套件就绪\n'
   exec bash "$DEST/wgaio.sh" "$@"
+  printf '[wgaio] 错误: 无法继续执行套件\n' >&2
+  exit 1
 fi
 # --- 引导结束 ---
 

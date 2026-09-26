@@ -159,6 +159,16 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("endpoint", r.stderr)
 
+    def test_wizard_leading_zero_port_is_decimal(self):
+        r, root = self._run_wizard(
+            "\n"
+            "08\n"
+            "203.0.113.7:8\n"
+            "\n" "\n" "\n" "\n" "\n")
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["wg_port"], 8)
+
     def test_wizard_rejects_bad_port(self):
         r, root = self._run_wizard(
             "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "abc\n" "\n")

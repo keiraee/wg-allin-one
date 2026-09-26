@@ -44,6 +44,16 @@ tcp_port_busy() {
   [ -n "$hits" ]
 }
 
+valid_port() {  # 08 按十进制 8，不按八进制报错；拒绝 0 和大于 65535
+  local p="$1" n
+  case "$p" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "${#p}" -le 5 ] || return 1
+  n="$((10#$p))"
+  [ "$n" -ge 1 ] && [ "$n" -le 65535 ]
+}
+
 local_cidr_conflict() {  # 打印和本机地址重叠的那条前缀；没有重叠则空
   local cidr="$1" locals py
   [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 0
@@ -115,12 +125,7 @@ run_wizard() {
 
   # 2. 服务端口
   wg_port="$(ask '服务端口 UDP(一般不用改)' '51820')"
-  case "$wg_port" in
-    ''|*[!0-9]*) die "端口必须是纯数字(1-65535)" ;;
-  esac
-  if [ "$wg_port" -lt 1 ] || [ "$wg_port" -gt 65535 ]; then
-    die "端口必须是纯数字(1-65535)"
-  fi
+  valid_port "$wg_port" || die "端口必须是纯数字(1-65535)"
   if udp_port_busy "$wg_port"; then
     die "UDP 端口 ${wg_port} 已被占用, 多半是上次安装留下的 WireGuard。请先执行: systemctl disable --now wg-quick@wg0 && rm -f /etc/wireguard/wg0.conf  然后重新安装。若这个端口是别的程序占用的, 请换一个服务端口"
   fi
@@ -183,12 +188,7 @@ run_wizard() {
 
   # 7. 面板端口
   panel_port="$(ask '面板端口' '8888')"
-  case "$panel_port" in
-    ''|*[!0-9]*) die "端口必须是纯数字(1-65535)" ;;
-  esac
-  if [ "$panel_port" -lt 1 ] || [ "$panel_port" -gt 65535 ]; then
-    die "端口必须是纯数字(1-65535)"
-  fi
+  valid_port "$panel_port" || die "端口必须是纯数字(1-65535)"
   if tcp_port_busy "$panel_port"; then
     die "面板端口 ${panel_port} 已被占用, 请换一个"
   fi

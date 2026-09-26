@@ -6,15 +6,16 @@
 . "$ROOT/lib/wizard.sh"
 
 install_deps() {
-  log "安装系统依赖(wireguard / python3)..."
+  log "安装系统依赖(wireguard / python3 / iptables)..."
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq wireguard wireguard-tools python3
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq && apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y wireguard-tools python3
+    dnf install -y wireguard-tools python3 iptables openssl
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y wireguard-tools python3
+    yum install -y wireguard-tools python3 iptables openssl
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache wireguard-tools python3
+    apk add --no-cache wireguard-tools python3 iptables openssl
   else
     die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
   fi

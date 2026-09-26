@@ -5,12 +5,29 @@
 # shellcheck source=lib/core.sh
 . "$ROOT/lib/core.sh"
 
+_upgrade_cleanup() {
+  if [ -n "${WGAIO_CLEAN_DIR:-}" ]; then
+    rm -rf "$WGAIO_CLEAN_DIR"
+    unset WGAIO_CLEAN_DIR
+  fi
+  return 0
+}
+
 check_sha256() {  # check_sha256 <目录>; 该目录须有 SHA256SUMS
   local dir="${1:-$WGAIO_ROOT}"
   [ -f "$dir/SHA256SUMS" ] || die "缺少 SHA256SUMS, 拒绝升级(来源不可信)"
-  ( cd "$dir" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) \
+  command -v sha256sum >/dev/null 2>&1 || die "需要 sha256sum 才能校验, 请安装 coreutils"
+  # 固定英文输出，避免中文系统把 OK 译成「成功」后误判全坏。
+  ( cd "$dir" && LC_ALL=C sha256sum -c SHA256SUMS >/dev/null 2>&1 ) \
     || die "SHA256SUMS 校验失败, 文件被改动或下载损坏, 已中止"
   log "SHA256SUMS 校验通过"
+}
+
+tree_sums_ok() {  # 本地程序文件是否和 SHA256SUMS 一致
+  local dir="${1:-$WGAIO_ROOT}"
+  command -v sha256sum >/dev/null 2>&1 || return 1
+  [ -f "$dir/SHA256SUMS" ] || return 1
+  ( cd "$dir" && LC_ALL=C sha256sum -c SHA256SUMS >/dev/null 2>&1 )
 }
 
 snapshot() {
@@ -42,17 +59,35 @@ apply_tree() {  # apply_tree <来源> <安装目录>
   fi
 }
 
-repo_slug() { printf '%s' "${WGAIO_REPO:-keiraee/wg-allin-one}"; }
+repo_slug() {
+  local s="${WGAIO_REPO:-keiraee/wg-allin-one}"
+  if [[ "$s" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    printf '%s' "$s"
+  else
+    die "WGAIO_REPO 不合法"
+  fi
+}
 
 is_commit_sha() {
-  printf '%s' "${1:-}" | grep -qiE '^[0-9a-f]{40}$'
+  [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]
+}
+
+ref_ok() {
+  case "${1:-}" in
+    ''|-*|*[!A-Za-z0-9._/-]*|*..*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+require_ref() {
+  ref_ok "${1:-}" || die "升级引用不合法: ${1:-}"
 }
 
 track_file() { printf '%s/.wgaio-track' "${1:-$WGAIO_ROOT}"; }
 
 read_track() {
-  local key="$1" file
-  file="$(track_file)"
+  local key="$1" file root="${2:-$WGAIO_ROOT}"
+  file="$(track_file "$root")"
   [ -f "$file" ] || return 0
   awk -F= -v key="$key" '$1==key {gsub(/\r/,""); print substr($0, index($0,"=")+1); exit}' "$file"
 }
@@ -81,12 +116,17 @@ hash_label() {
 }
 
 installed_version() {
-  local v=""
-  if [ -f "${WGAIO_ROOT}/wgaio.sh" ]; then
-    v="$(awk -F= '/^VERSION=/{gsub(/["\r]/,"",$2); print $2; exit}' "${WGAIO_ROOT}/wgaio.sh" || true)"
+  local dir="${1:-$WGAIO_ROOT}" v=""
+  if [ -f "${dir}/wgaio.sh" ]; then
+    v="$(awk -F= '/^VERSION=/{gsub(/["\r]/,"",$2); print $2; exit}' "${dir}/wgaio.sh" || true)"
   fi
   [ -n "$v" ] || v="${WGAIO_VERSION:-未知}"
   printf '%s' "$v"
+}
+
+note_menu_reload() {
+  [ "${WGAIO_IN_MENU:-}" = "1" ] || return 0
+  : > "${WGAIO_ROOT}/.wgaio-menu-reload" || true
 }
 
 # 提交相同就不用再下载。供升级和测试共用。
@@ -96,63 +136,106 @@ same_commit() {
 
 github_curl() {
   command -v curl >/dev/null 2>&1 || die "需要 curl 才能下载升级包"
-  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 \
     -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$@"
 }
 
+# 把 HTTP 状态留在当前 shell。不要放进 $()，否则状态码会丢。
+github_get() {
+  local code
+  command -v curl >/dev/null 2>&1 || die "需要 curl 才能下载升级包"
+  code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+    -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+    -o "$2" -w '%{http_code}' "$1" || true)"
+  GITHUB_HTTP="${code:-000}"
+}
+
 json_sha() {
-  printf '%s' "${1:-}" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -1 \
-    | grep -oE '[0-9a-fA-F]{40}' | tr 'A-F' 'a-f' || true
+  # 同一行里可能有多个 sha。=~ 取最左边那一个，避免 grep -o 把后面的也捞进来。
+  local payload="${1:-}"
+  if [[ "$payload" =~ \"sha\"[[:space:]]*:[[:space:]]*\"([0-9a-fA-F]{40})\" ]]; then
+    printf '%s' "${BASH_REMATCH[1],,}"
+  fi
 }
 
 json_tag() {
-  printf '%s' "${1:-}" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+  local payload="${1:-}"
+  if [[ "$payload" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
 }
 
 resolve_latest_tag() {
-  local payload tag
-  payload="$(github_curl "https://api.github.com/repos/$(repo_slug)/releases/latest")" \
-    || die "还没有正式版 Release。请先选抢先试用 main，或执行: WGAIO_REF=main wgaio upgrade"
-  tag="$(json_tag "$payload")"
+  local body tag
+  body="$(mktemp)"
+  github_get "https://api.github.com/repos/$(repo_slug)/releases/latest" "$body"
+  if [ "$GITHUB_HTTP" != "200" ]; then
+    rm -f "$body"
+    if [ "$GITHUB_HTTP" = "404" ]; then
+      die "还没有正式版 Release。请先选抢先试用 main，或执行: WGAIO_REF=main wgaio upgrade"
+    fi
+    die "访问 GitHub 失败 (HTTP ${GITHUB_HTTP})。请检查网络后重试"
+  fi
+  tag="$(json_tag "$(cat "$body")")"
+  rm -f "$body"
   [ -n "$tag" ] || die "latest release 为空"
+  require_ref "$tag"
   printf '%s' "$tag"
 }
 
 resolve_commit() {
-  local ref="$1" payload sha
+  # 只往 stdout 打 sha。日志必须由调用方打，否则 $(resolve_commit) 会把日志行吞进提交号。
+  local ref="$1" body sha
+  require_ref "$ref"
   if is_commit_sha "$ref"; then
     printf '%s' "$ref"
     return 0
   fi
-  payload="$(github_curl "https://api.github.com/repos/$(repo_slug)/commits/${ref}")" \
-    || die "无法解析 Git 引用 ${ref}"
-  sha="$(json_sha "$payload")"
+  body="$(mktemp)"
+  github_get "https://api.github.com/repos/$(repo_slug)/commits/${ref}" "$body"
+  if [ "$GITHUB_HTTP" != "200" ]; then
+    rm -f "$body"
+    die "无法解析 Git 引用 ${ref} (HTTP ${GITHUB_HTTP})"
+  fi
+  sha="$(json_sha "$(cat "$body")")"
+  rm -f "$body"
   is_commit_sha "$sha" || die "GitHub 返回的 sha 无效: ${sha}"
-  log "钉住提交: ${ref} → ${sha:0:12}"
   printf '%s' "$sha"
 }
 
 download_commit_tree() {
   local sha="$1" dest="$2" tmp
   tmp="$(mktemp -d)"
-  github_curl "https://github.com/$(repo_slug)/archive/${sha}.tar.gz" -o "$tmp/src.tgz" \
-    || { rm -rf "$tmp"; die "套件下载失败"; }
+  if ! github_curl "https://github.com/$(repo_slug)/archive/${sha}.tar.gz" -o "$tmp/src.tgz"; then
+    rm -rf "$tmp"
+    return 1
+  fi
   mkdir -p "$dest"
-  tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 --warning=no-timestamp \
-    || tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 \
-    || { rm -rf "$tmp"; die "套件解包失败"; }
+  if ! tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1 --warning=no-timestamp \
+      && ! tar xzf "$tmp/src.tgz" -C "$dest" --strip-components=1; then
+    rm -rf "$tmp"
+    return 1
+  fi
   rm -rf "$tmp"
 }
 
 write_track() {
-  local dir="${1:-$WGAIO_ROOT}" ref sha sums ver
-  ref="${WGAIO_PERSIST_TRACK:-${WGAIO_TRACK_REF:-${WGAIO_REF:-main}}}"
-  sha="${WGAIO_FETCH_COMMIT:-}"
+  local dir="${1:-$WGAIO_ROOT}" ref sha sums ver saved_ref saved_sha
+  saved_ref="$(read_track WGAIO_TRACK_REF "$dir")"
+  saved_sha="$(read_track WGAIO_REPO_SHA "$dir")"
+  # 没显式指定轨道时沿用文件里的记录。离线升级不能把稳定版改写成 main。
+  ref="${WGAIO_PERSIST_TRACK:-${WGAIO_REF:-$saved_ref}}"
+  [ -n "$ref" ] || ref="main"
+  require_ref "$ref"
+  sha="${WGAIO_FETCH_COMMIT:-$saved_sha}"
+  if [ -n "$sha" ] && ! is_commit_sha "$sha"; then
+    die "记录的提交哈希不合法"
+  fi
   sums=""
   if [ -f "$dir/SHA256SUMS" ]; then
     sums="$(file_sha256 "$dir/SHA256SUMS")"
   fi
-  ver="$(installed_version)"
+  ver="$(installed_version "$dir")"
   cat > "$dir/.wgaio-track" <<EOF
 WGAIO_TRACK_REF=${ref}
 WGAIO_REPO_SHA=${sha}
@@ -166,6 +249,7 @@ EOF
 cmd_upgrade() {
   local src="${WGAIO_UPGRADE_SRC:-}" cleanup="" persist resolved remote_sha
   local old_sum old_commit new_sum
+  trap _upgrade_cleanup EXIT
   old_sum="$(read_track WGAIO_MODULES_SHA)"
   old_commit="$(read_track WGAIO_REPO_SHA)"
   if [ -z "$src" ]; then
@@ -174,6 +258,7 @@ cmd_upgrade() {
       persist="$(read_track WGAIO_TRACK_REF)"
     fi
     [ -n "$persist" ] || persist="main"
+    require_ref "$persist"
     if [ "$persist" = "latest" ]; then
       resolved="$(resolve_latest_tag)"
       WGAIO_PERSIST_TRACK="latest"
@@ -185,45 +270,83 @@ cmd_upgrade() {
     remote_sha="$(resolve_commit "$resolved")"
     export WGAIO_FETCH_COMMIT="$remote_sha"
     log "升级轨道: ${WGAIO_PERSIST_TRACK} (${resolved})"
+    log "钉住提交: ${resolved} → ${remote_sha:0:12}"
     log "上次哈希: $(hash_label "$old_sum" "$old_commit")"
-    if same_commit "$old_commit" "$remote_sha"; then
+    if same_commit "$old_commit" "$remote_sha" && tree_sums_ok "$WGAIO_ROOT"; then
       log "本次哈希: $(hash_label "$old_sum" "$remote_sha")"
       log "提交未变化, 无需覆盖 (若怀疑本地文件损坏: wgaio verify --fix)"
+      write_track "$WGAIO_ROOT"
       return 0
+    fi
+    if same_commit "$old_commit" "$remote_sha"; then
+      warn "提交未变化, 但本地文件和 SHA256SUMS 不一致, 将重新下载覆盖"
     fi
     src="$(mktemp -d)"
     cleanup="$src"
-    download_commit_tree "$remote_sha" "$src"
+    WGAIO_CLEAN_DIR="$src"
+    download_commit_tree "$remote_sha" "$src" || die "套件下载失败"
   fi
   check_sha256 "$src"
   if [ -n "$cleanup" ]; then
     new_sum="$(file_sha256 "$src/SHA256SUMS")"
     log "本次哈希: $(hash_label "$new_sum" "${WGAIO_FETCH_COMMIT:-}")"
-    if [ -n "$old_sum" ] && [ "$old_sum" = "$new_sum" ]; then
+    if [ -n "$old_sum" ] && [ "$old_sum" = "$new_sum" ] && tree_sums_ok "$WGAIO_ROOT"; then
       log "哈希未变化, 程序文件与上次相同, 跳过覆盖"
       write_track "$WGAIO_ROOT"
+      unset WGAIO_CLEAN_DIR
       rm -rf "$cleanup"
       return 0
     fi
-    log "哈希已变化"
+    if [ -n "$old_sum" ] && [ "$old_sum" = "$new_sum" ]; then
+      warn "哈希未变化, 但本地文件已损坏, 将覆盖修复"
+    else
+      log "哈希已变化"
+    fi
   fi
   snapshot
   apply_tree "$src" "$WGAIO_ROOT"
-  [ -n "$cleanup" ] && rm -rf "$cleanup"
+  if [ -n "$cleanup" ]; then
+    unset WGAIO_CLEAN_DIR
+    rm -rf "$cleanup"
+  fi
   check_sha256 "$WGAIO_ROOT"
   write_track "$WGAIO_ROOT"
   if command -v systemctl >/dev/null 2>&1; then
     systemctl try-restart wgaio-panel 2>/dev/null || true
   fi
+  note_menu_reload
   log "升级完成(config.json 与 clients/ 未覆盖)"
 }
 
+newest_snapshot() {
+  local dir="$1" f latest="" ng=0
+  shopt -q nullglob && ng=1
+  shopt -s nullglob
+  local -a snaps=("$dir"/snapshots/wgaio-*.tar.gz)
+  if [ "$ng" -eq 0 ]; then
+    shopt -u nullglob
+  fi
+  [ "${#snaps[@]}" -gt 0 ] || return 1
+  latest="${snaps[0]}"
+  for f in "${snaps[@]}"; do
+    [ "$f" -nt "$latest" ] && latest="$f"
+  done
+  printf '%s' "$latest"
+}
+
 cmd_rollback() {
-  local dir="${WGAIO_ROOT}" latest
-  latest="$(ls -1t "$dir"/snapshots/wgaio-*.tar.gz 2>/dev/null | head -1)"
+  local dir="${WGAIO_ROOT}" latest has_track=0
+  latest="$(newest_snapshot "$dir" || true)"
   [ -n "$latest" ] || die "没有可用快照, 无法回滚"
+  if tar tzf "$latest" .wgaio-track >/dev/null 2>&1; then
+    has_track=1
+  fi
   # 默认不动 config.json: 升级本就不改配置，回滚也不应撤销用户事后对端口/令牌的调整
   tar xzf "$latest" -C "$dir" --exclude=config.json
+  # 快照里没有轨道文件时，删掉升级刚写上的那份，避免回滚后哈希和文件对不上。
+  if [ "$has_track" -eq 0 ]; then
+    rm -f "$dir/.wgaio-track"
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     systemctl try-restart wgaio-panel 2>/dev/null || true
   fi
@@ -232,14 +355,16 @@ cmd_rollback() {
 
 cmd_verify() {
   local fix=0 dir="${WGAIO_ROOT}"
+  trap _upgrade_cleanup EXIT
   [ "${1:-}" = "--fix" ] && fix=1
   [ -f "$dir/SHA256SUMS" ] || die "缺少 SHA256SUMS, 无法校验"
-  local bad
-  bad="$(cd "$dir" && sha256sum -c SHA256SUMS 2>/dev/null | grep -v ': OK$' || true)"
-  if [ -z "$bad" ]; then
+  command -v sha256sum >/dev/null 2>&1 || die "需要 sha256sum 才能校验, 请安装 coreutils"
+  if ( cd "$dir" && LC_ALL=C sha256sum -c SHA256SUMS >/dev/null 2>&1 ); then
     log "本地文件与 SHA256SUMS 一致"
     return 0
   fi
+  local bad
+  bad="$(cd "$dir" && LC_ALL=C sha256sum -c SHA256SUMS 2>&1 | grep -v ': OK$' || true)"
   warn "以下文件与 SHA256SUMS 不一致:"
   printf '%s\n' "$bad" >&2
   if [ "$fix" -eq 0 ]; then
@@ -252,6 +377,7 @@ cmd_verify() {
     persist="$(read_track WGAIO_TRACK_REF)"
   fi
   [ -n "$persist" ] || persist="main"
+  require_ref "$persist"
   if [ "$persist" = "latest" ]; then
     resolved="$(resolve_latest_tag)"
     WGAIO_PERSIST_TRACK="latest"
@@ -262,15 +388,20 @@ cmd_verify() {
   export WGAIO_PERSIST_TRACK
   remote_sha="$(resolve_commit "$resolved")"
   export WGAIO_FETCH_COMMIT="$remote_sha"
+  log "钉住提交: ${resolved} → ${remote_sha:0:12}"
   src="$(mktemp -d)"
-  download_commit_tree "$remote_sha" "$src"
+  WGAIO_CLEAN_DIR="$src"
+  download_commit_tree "$remote_sha" "$src" || die "套件下载失败"
   check_sha256 "$src"
+  snapshot "$dir"
   apply_tree "$src" "$dir"
+  unset WGAIO_CLEAN_DIR
   rm -rf "$src"
   check_sha256 "$dir"
   write_track "$dir"
   if command -v systemctl >/dev/null 2>&1; then
     systemctl try-restart wgaio-panel 2>/dev/null || true
   fi
+  note_menu_reload
   log "已按轨道 ${WGAIO_PERSIST_TRACK} 修复本地文件"
 }

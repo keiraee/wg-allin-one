@@ -115,6 +115,8 @@ class UpgradeApplyTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, "STDOUT:\n%s\nSTDERR:\n%s" % (r.stdout, r.stderr))
         self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "old-entry\n")
         self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
+        # 快照里没有轨道文件时，回滚必须删掉升级刚写上的那份
+        self.assertFalse((root / ".wgaio-track").exists())
 
     def test_rollback_does_not_restore_config(self):
         import hashlib
@@ -180,6 +182,111 @@ echo
         self.assertIn("管理菜单", out)
         self.assertIn("抢先试用 main", out)
         self.assertIn("升级稳定版", out)
+
+    def test_resolve_commit_stdout_is_only_sha(self):
+        script = r"""
+set -Eeuo pipefail
+ROOT="$(pwd)"
+export WGAIO_ROOT="$ROOT"
+. lib/core.sh
+. lib/upgrade.sh
+github_get() {
+  printf '%s\n' '{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}' > "$2"
+  GITHUB_HTTP=200
+}
+sha="$(resolve_commit main)"
+printf '%s\n' "$sha"
+if ref_ok '$(reboot)'; then
+  echo 'ref should be rejected' >&2
+  exit 1
+fi
+"""
+        # 写到仓库里再执行。Windows 的 bash -c 会拆掉 $(resolve_commit)，
+        # 系统临时目录的路径在 WSL bash 里也对不上。
+        name = ROOT / "_t_resolve_test.sh"
+        name.write_text(script, encoding="utf-8", newline="\n")
+        self.addCleanup(name.unlink, missing_ok=True)
+        r = subprocess.run(["bash", name.name], cwd=str(ROOT), capture_output=True,
+                           text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "a" * 40, "STDOUT=%r STDERR=%r" % (r.stdout, r.stderr))
+
+    def test_offline_upgrade_keeps_saved_track(self):
+        import hashlib
+        import shutil
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        root = base / "inst"
+        src = base / "src"
+        (root / "lib").mkdir(parents=True)
+        (src / "lib").mkdir(parents=True)
+        for name in ("core.sh", "upgrade.sh"):
+            shutil.copy(ROOT / "lib" / name, root / "lib" / name)
+            shutil.copy(ROOT / "lib" / name, src / "lib" / name)
+        (root / "wgaio.sh").write_text('VERSION="0.2.3"\n', encoding="utf-8", newline="\n")
+        (src / "wgaio.sh").write_text('VERSION="0.2.3"\n', encoding="utf-8", newline="\n")
+        names = ["wgaio.sh", "lib/core.sh", "lib/upgrade.sh"]
+        lines = []
+        for name in names:
+            digest = hashlib.sha256((src / name).read_bytes()).hexdigest()
+            lines.append("%s  %s" % (digest, name))
+        (src / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        sha = "a" * 40
+        (root / ".wgaio-track").write_text(
+            "WGAIO_TRACK_REF=latest\nWGAIO_REPO_SHA=%s\nWGAIO_MODULES_SHA=%s\nWGAIO_VERSION=0.2.3\n"
+            % (sha, "b" * 64),
+            encoding="utf-8", newline="\n")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = (root / ".wgaio-track").read_text(encoding="utf-8")
+        self.assertIn("WGAIO_TRACK_REF=latest", text)
+        self.assertIn("WGAIO_REPO_SHA=%s" % sha, text)
+        self.assertNotIn("WGAIO_TRACK_REF=main", text)
+
+    def test_rollback_without_snapshot_explains(self):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "lib").mkdir()
+        os.symlink(ROOT / "lib" / "core.sh", root / "lib" / "core.sh")
+        os.symlink(ROOT / "lib" / "upgrade.sh", root / "lib" / "upgrade.sh")
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/upgrade.sh; cmd_rollback',
+            cwd=root)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("没有可用快照", r.stderr)
+
+    def test_logs_rejects_non_numeric(self):
+        r = run_bash(
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; . lib/core.sh; . lib/logs.sh; cmd_logs abc')
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("行数", r.stderr)
+
+    def test_status_inactive_is_single_line(self):
+        script = r"""
+set -Eeuo pipefail
+d="$(mktemp -d)"
+cat > "$d/systemctl" << 'EOF'
+#!/bin/sh
+echo inactive
+exit 3
+EOF
+chmod +x "$d/systemctl"
+export PATH="$d:$PATH"
+ROOT="$(pwd)"
+export WGAIO_ROOT="$ROOT"
+. lib/core.sh
+. lib/status.sh
+cmd_status || true
+"""
+        r = run_bash(script)
+        out = r.stdout + r.stderr
+        self.assertIn("面板服务: 未运行", out)
+        self.assertNotIn("面板服务: inactive", out)
 
 
 class UninstallTests(unittest.TestCase):

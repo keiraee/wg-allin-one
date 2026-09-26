@@ -22,7 +22,10 @@ __pycache__/
 
 # 运行时产物
 _stage/
+_t_resolve_test.sh
 snapshots/
 _t.service
 .wgaio-track
+.wgaio-menu-reload
+.wgaio-uninstalled
 .update-check.json

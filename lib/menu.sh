@@ -164,10 +164,12 @@ menu_uninstall() {
   ok="$(menu_read "确认卸载请输入 yes: ")"
   [ "$ok" = "yes" ] || { log "已取消"; return 0; }
   cmd_uninstall
+  : > "${WGAIO_ROOT}/.wgaio-uninstalled" || true
 }
 
 cmd_menu() {
   local choice
+  export WGAIO_IN_MENU=1
   if [ "$(id -u)" -ne 0 ]; then
     warn "当前不是 root，改配置和重启服务会失败。请用: sudo wgaio"
   fi
@@ -196,5 +198,14 @@ cmd_menu() {
     esac
     echo
     menu_read "按回车返回菜单..." >/dev/null || true
+    if [ -f "${WGAIO_ROOT}/.wgaio-uninstalled" ]; then
+      rm -f "${WGAIO_ROOT}/.wgaio-uninstalled"
+      log "已卸载, 菜单退出"
+      exit 0
+    fi
+    if [ -f "${WGAIO_ROOT}/.wgaio-menu-reload" ]; then
+      rm -f "${WGAIO_ROOT}/.wgaio-menu-reload"
+      exec bash "$ROOT/wgaio.sh"
+    fi
   done
 }
