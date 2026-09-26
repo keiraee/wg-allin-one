@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 升级: 下载 → SHA256SUMS 校验 → 快照 → 覆盖程序文件。校验失败一律拒绝。
 # 不覆盖 config.json 与 clients/。快照包含 wgaio.sh，回滚后入口版本与套件一致，
-# 避免入口发现版本不一致后又从 main 重新下载、把回滚盖掉。
+# 避免入口发现版本不一致后又按轨道重新下载、把回滚盖掉。
 # shellcheck source=lib/core.sh
 . "$ROOT/lib/core.sh"
 
@@ -223,9 +223,9 @@ write_track() {
   local dir="${1:-$WGAIO_ROOT}" ref sha sums ver saved_ref saved_sha
   saved_ref="$(read_track WGAIO_TRACK_REF "$dir")"
   saved_sha="$(read_track WGAIO_REPO_SHA "$dir")"
-  # 没显式指定轨道时沿用文件里的记录。离线升级不能把稳定版改写成 main。
+  # 没显式指定时沿用文件里的记录。都没有就记 latest，不要改写成 main。
   ref="${WGAIO_PERSIST_TRACK:-${WGAIO_REF:-$saved_ref}}"
-  [ -n "$ref" ] || ref="main"
+  [ -n "$ref" ] || ref="latest"
   require_ref "$ref"
   sha="${WGAIO_FETCH_COMMIT:-$saved_sha}"
   if [ -n "$sha" ] && ! is_commit_sha "$sha"; then
@@ -257,7 +257,7 @@ cmd_upgrade() {
     if [ -z "$persist" ]; then
       persist="$(read_track WGAIO_TRACK_REF)"
     fi
-    [ -n "$persist" ] || persist="main"
+    [ -n "$persist" ] || persist="latest"
     require_ref "$persist"
     if [ "$persist" = "latest" ]; then
       resolved="$(resolve_latest_tag)"
@@ -376,7 +376,7 @@ cmd_verify() {
   if [ -z "$persist" ]; then
     persist="$(read_track WGAIO_TRACK_REF)"
   fi
-  [ -n "$persist" ] || persist="main"
+  [ -n "$persist" ] || persist="latest"
   require_ref "$persist"
   if [ "$persist" = "latest" ]; then
     resolved="$(resolve_latest_tag)"

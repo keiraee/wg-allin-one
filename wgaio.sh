@@ -44,9 +44,9 @@ if [ "$need_bootstrap" = "1" ]; then
   }
   slug="${WGAIO_REPO:-keiraee/wg-allin-one}"
   [[ "$slug" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || boot_fail "WGAIO_REPO 不合法"
-  REF="${WGAIO_REF:-main}"
+  REF="${WGAIO_REF:-latest}"
   boot_ref_ok "$REF" || boot_fail "升级引用不合法"
-  # 稳定版=latest release；main=抢先试用。能解析提交就按提交下载，避免分支缓存。
+  # 没指定时跟最新正式版。main 要显式 WGAIO_REF=main。能解析提交就按提交下载，避免分支缓存。
   if [ "$REF" = "latest" ]; then
     code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
       -H 'Cache-Control: no-cache' -o "$work/release.json" -w '%{http_code}' \
@@ -185,12 +185,13 @@ usage() {
   cert                    重新申请 Let's Encrypt 证书
   backup [restore 文件]   备份或恢复 config.json、clients 和 wg0.conf
   logs [行数]             面板日志
-  upgrade                 按已记住的轨道升级(稳定版=Release, main=抢先试用)
+  upgrade                 升级；没记住轨道时跟最新正式版，记住 main 后继续跟 main
   verify [--fix]          校验本地文件是否被改动, --fix 从轨道重新下载修复
   rollback                回滚到最近快照(不覆盖 config.json)
   uninstall               卸载
 
-稳定版: WGAIO_REF=latest wgaio upgrade
+正式版: wgaio upgrade
+切回正式版: WGAIO_REF=latest wgaio upgrade
 抢先试用: WGAIO_REF=main wgaio upgrade
 设备管理细节: wgaio user --help
 EOF

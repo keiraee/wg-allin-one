@@ -89,7 +89,7 @@ menu_track_show() {
   log "轨道: $(read_track WGAIO_TRACK_REF)"
   log "提交: $(read_track WGAIO_REPO_SHA)"
   log "模块哈希: $(read_track WGAIO_MODULES_SHA)"
-  log "稳定版跟 GitHub Release。抢先试用跟 main，之后普通升级不会被正式版带走。"
+  log "普通升级跟 GitHub 最新正式版。选过抢先试用后，本机会记住 main，之后不会被正式版带走。"
   log "切回稳定版: 选 1，或执行 WGAIO_REF=latest wgaio upgrade"
 }
 

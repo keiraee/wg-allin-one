@@ -2,13 +2,25 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI(hy2-allin-one 同款体验)。
 
+更新有两条轨道：
+
+- **正式版**：跟 [Releases](https://github.com/keiraee/wg-allin-one/releases) 里的最新 tag。现在这个 tag 是 [v0.1.0](https://github.com/keiraee/wg-allin-one/releases/tag/v0.1.0)。新装、以及没记住别的轨道时，安装和 `wgaio upgrade` 都走这里。
+- **main**：仓库里还没打 tag 的提交。菜单「轨道」显示 `main` 的机器，普通升级会继续拉 `main`。要试用这条，见 [试用 main](#试用-main)。
+
+`main` 比 `v0.1.0` 多这些还没发版的功能：面板随机入口、Let's Encrypt 正式证书、设备停用和换密钥、配置二维码、隧道配置备份。现在执行 `WGAIO_REF=latest wgaio upgrade`，程序会换成 `v0.1.0`，这些功能不在那个 tag 里。`config.json` 和 `clients/` 不会被升级删掉。
+
 ## 快速开始
 
+安装当前正式版：
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh -o wgaio.sh && sudo bash wgaio.sh install
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.1.0/wgaio.sh -o wgaio.sh
+sudo WGAIO_REF=latest bash wgaio.sh install
 ```
 
 按中文向导回车即可; 装完把令牌保存好(只显示一次)。
+
+`v0.1.0` 这份安装脚本在下载其余文件时，默认仍会去拉 `main`。命令里的 `WGAIO_REF=latest` 让它改拉最新 Release，并在本机记下「以后跟正式版」。装好后看菜单第一行，轨道应是 `latest`。
 
 **安装会做什么**: 自动安装 wireguard/python3 依赖、初始化 WireGuard 中枢 wg0(已有 wg0.conf 则不动)、
 把套件落到 `/opt/wgaio`(可用 `WGAIO_DIR` 改)、写入 `/usr/local/bin/wgaio` 包装、
@@ -23,13 +35,39 @@ curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh 
 
 装好后在终端里直接执行 `wgaio`（不要带子命令）进入菜单，里面可以升级、管设备、开关面板、看日志、回滚和卸载。`wgaio --help` 仍是命令说明。
 
-## 升级轨道
+## 已经装好了，怎么更新
+
+先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
+
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.1.0`。
+- 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
+
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.1.0`）：
+
+```bash
+WGAIO_REF=latest wgaio upgrade
+```
 
 升级只覆盖程序文件，不动 `config.json` 和 `clients/`。每次先向 GitHub 解析当前提交，再按该提交下载并校验 `SHA256SUMS`。日志会打出上次哈希和本次哈希；提交没变，或者哈希没变，就跳过覆盖。本地文件被改坏时用 `wgaio verify --fix` 按当前轨道修复。
 
-- **稳定版**：菜单里选「升级稳定版」，或 `WGAIO_REF=latest wgaio upgrade`。跟 GitHub Release 的最新 tag。
-- **抢先试用**：菜单里选「抢先试用 main」，或 `WGAIO_REF=main wgaio upgrade`。本机会记住 `main`，之后普通 `wgaio upgrade` 继续跟 `main`，不会被正式版带走。
-- 用仓库里的 `main` 安装脚本装好的机器，轨道默认就是 `main`。
+## 试用 main
+
+`main` 是仓库最新提交，还没有对应的 Release。第一次必须带 `WGAIO_REF=main`，本机会把轨道写成 `main`。之后普通 `wgaio upgrade` 继续跟 `main`，后续发出的正式版 tag 不会把它带走。
+
+已安装，改跟 `main`：
+
+```bash
+WGAIO_REF=main wgaio upgrade
+```
+
+全新安装也直接用 `main`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/main/wgaio.sh -o wgaio.sh
+sudo WGAIO_REF=main bash wgaio.sh install
+```
+
+要回到正式版，再执行一次 `WGAIO_REF=latest wgaio upgrade`。
 
 ## 子命令
 

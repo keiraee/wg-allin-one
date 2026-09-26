@@ -211,6 +211,24 @@ fi
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "a" * 40, "STDOUT=%r STDERR=%r" % (r.stdout, r.stderr))
 
+    def test_empty_track_records_latest(self):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "lib").mkdir()
+        for name in ("core.sh", "upgrade.sh"):
+            os.symlink(ROOT / "lib" / name, root / "lib" / name)
+        (root / "wgaio.sh").write_text('VERSION="0.2.3"\n', encoding="utf-8", newline="\n")
+        r = run_bash(
+            'unset WGAIO_REF WGAIO_PERSIST_TRACK WGAIO_FETCH_COMMIT; '
+            'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; '
+            '. lib/core.sh; . lib/upgrade.sh; write_track "$(pwd)"',
+            cwd=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = (root / ".wgaio-track").read_text(encoding="utf-8")
+        self.assertIn("WGAIO_TRACK_REF=latest", text)
+        self.assertNotIn("WGAIO_TRACK_REF=main", text)
+
     def test_offline_upgrade_keeps_saved_track(self):
         import hashlib
         import shutil
