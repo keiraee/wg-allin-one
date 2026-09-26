@@ -107,6 +107,16 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(core.ApiError):
             core.load_config(p)
 
+    def test_reject_bad_panel_bind(self):
+        p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "panel_bind": "not-an-ip"})
+        with self.assertRaises(core.ApiError):
+            core.load_config(p)
+
+    def test_accept_panel_bind_ipv4_and_any(self):
+        for bind in ("10.66.66.1", "0.0.0.0", ""):
+            p = write_cfg(self.tmp.name, {"endpoint": "1.2.3.4:51820", "panel_bind": bind})
+            core.load_config(p)
+
 
 if __name__ == "__main__":
     unittest.main()

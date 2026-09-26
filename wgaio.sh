@@ -8,12 +8,9 @@ export WGAIO_ROOT="$ROOT"
 VERSION="0.2.3"
 export WGAIO_VERSION="$VERSION"
 
-# --- 引导模式: 套件缺失或版本不一致时自动拉取 ---
+# --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
 need_bootstrap=0
-if [ ! -f "$ROOT/lib/core.py" ]; then
-  need_bootstrap=1
-elif ! grep -q "SUITE_VERSION=\"$VERSION\"" "$ROOT/lib/core.sh" 2>/dev/null; then
-  printf '[wgaio] 检测到套件版本与入口不一致(旧版残留?), 正在更新...\n'
+if [ ! -f "$ROOT/lib/core.py" ] || [ ! -f "$ROOT/lib/core.sh" ] || [ ! -f "$ROOT/lib/wizard.sh" ]; then
   need_bootstrap=1
 fi
 

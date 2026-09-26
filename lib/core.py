@@ -102,6 +102,15 @@ def validate_config(cfg):
     pp = cfg.get("panel_port")
     if type(pp) is not int or not 1 <= pp <= 65535:
         raise ApiError("panel_port 必须是 1-65535 的整数")
+    pb = str(cfg.get("panel_bind") or "").strip()
+    if pb:
+        if pb != "0.0.0.0" and not IPV4_RE.match(pb):
+            raise ApiError("panel_bind 必须是 IPv4 或 0.0.0.0: %s" % pb)
+        if pb != "0.0.0.0":
+            try:
+                _ip_to_int(pb)
+            except ValueError:
+                raise ApiError("panel_bind 必须是 IPv4 或 0.0.0.0: %s" % pb)
 
 
 def _ip_to_int(ip):

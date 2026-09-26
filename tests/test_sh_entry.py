@@ -53,27 +53,23 @@ class EntryTests(unittest.TestCase):
         self.assertFalse((Path(tmp) / "lib").exists())
 
     def test_mismatch_offline_exits_with_hint(self):
-        """Version-mismatch self-heal blocked by WGAIO_OFFLINE → rc 1, stderr hint."""
+        """套件缺失时自愈被 WGAIO_OFFLINE 拦住 → rc 1, stderr 提示。"""
         import tempfile as _tf
         tmp = _tf.mkdtemp()
         root = Path(tmp)
         (root / "lib").mkdir()
-        # copy wgaio.sh and core.sh with stale SUITE_VERSION
         (root / "wgaio.sh").write_bytes((ROOT / "wgaio.sh").read_bytes())
-        core_sh = (ROOT / "lib/core.sh").read_text(encoding="utf-8")
-        stale = core_sh.replace('SUITE_VERSION="0.2.3"', 'SUITE_VERSION="0.0.0"', 1)
-        (root / "lib" / "core.sh").write_text(stale, encoding="utf-8")
-        # stub core.py so bootstrap would have been skipped by old logic
-        (root / "lib" / "core.py").write_text("# stub\n", encoding="utf-8")
+        # 有 core.sh 但缺 core.py / wizard.sh，视为套件不完整
+        (root / "lib" / "core.sh").write_text("# stub\n", encoding="utf-8")
         r = subprocess.run(
             ["bash", "-c", 'WGAIO_OFFLINE=1 exec bash wgaio.sh status'],
             capture_output=True, text=True, timeout=30,
             cwd=str(root), encoding="utf-8")
-        self.assertEqual(r.returncode, 1, "expected rc 1 for offline mismatch")
+        self.assertEqual(r.returncode, 1, "expected rc 1 for offline incomplete suite")
         self.assertIn("离线模式", r.stderr)
 
     def test_matching_suite_no_bootstrap(self):
-        """Matching suite version → no bootstrap, normal version output."""
+        """套件齐全 → 不进入引导模式。"""
         r = run_sh("version")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("0.2.3", r.stdout)

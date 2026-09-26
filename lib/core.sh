@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # wgaio 公共函数: 日志/报错/依赖/Python 定位
+# 版本号只维护在 wgaio.sh 的 VERSION=，此处不重复声明。
 set -Eeuo pipefail
-
-SUITE_VERSION="0.2.3"
 
 wgaio_root() { cd "$(dirname "${BASH_SOURCE[1]}")" && pwd; }
 
