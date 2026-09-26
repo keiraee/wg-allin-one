@@ -9,8 +9,9 @@ VERSION="0.2.3"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
+# 只认真正跑 CLI/面板必需的 core：wizard/install 等缺失不该让 user list 去联网下载。
 need_bootstrap=0
-if [ ! -f "$ROOT/lib/core.py" ] || [ ! -f "$ROOT/lib/core.sh" ] || [ ! -f "$ROOT/lib/wizard.sh" ]; then
+if [ ! -f "$ROOT/lib/core.py" ] || [ ! -f "$ROOT/lib/core.sh" ]; then
   need_bootstrap=1
 fi
 

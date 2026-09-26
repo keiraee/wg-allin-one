@@ -17,7 +17,7 @@ def make_sandbox(root):
     script that provisions config and exports WGAIO_BASE/WGAIO_WG_CONF."""
     root = Path(root)
     (root / "lib").mkdir(exist_ok=True)
-    for f in ("core.sh", "core.py", "user.sh"):
+    for f in ("core.sh", "core.py", "user.sh", "wizard.sh"):
         src = ROOT / "lib" / f
         if src.exists():
             try:
@@ -28,7 +28,7 @@ def make_sandbox(root):
         os.symlink(ROOT / "wgaio.sh", root / "wgaio.sh")
     except OSError:
         pass
-    for critical in ("lib/core.py", "lib/user.sh"):
+    for critical in ("lib/core.py", "lib/core.sh", "lib/user.sh"):
         assert (root / critical).exists(), "沙箱 symlink 失败: %s" % critical
     # runner.sh: creates config/wg0.conf, exports env, delegates to wgaio.sh
     runner = root / "run.sh"
@@ -42,6 +42,8 @@ def make_sandbox(root):
         "printf '[Interface]\\nPrivateKey = S\\n' > wg0.conf",
         'export WGAIO_BASE="$PWD"',
         'export WGAIO_WG_CONF="$PWD/wg0.conf"',
+        # 测试永不联网自愈，避免误装到 /opt/wgaio
+        'export WGAIO_OFFLINE=1',
         'bash wgaio.sh "$@"',
     ]
     runner.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
