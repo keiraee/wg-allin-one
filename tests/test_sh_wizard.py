@@ -146,6 +146,13 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("重叠", r.stderr)
 
+    def test_conflict_message_points_at_leftover_interface(self):
+        """网段冲突要指出是哪个网卡, 并给出停掉残留 WireGuard 的命令。"""
+        src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")
+        self.assertIn("conflict_iface", src)
+        self.assertIn("wg-quick down", src)
+        self.assertIn("rm -f /etc/wireguard/", src)
+
     def test_wizard_rejects_busy_udp(self):
         r, root = self._run_wizard_raw(
             "\n\n", "WGAIO_LOCAL_CIDRS=192.168.9.0/24 WGAIO_BUSY_UDP=51820")

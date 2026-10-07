@@ -104,9 +104,16 @@ run_wizard() {
     3) vpn_cidr="172.31.88.0/24" ;;
     *) die "无效选择, 请输入 1、2 或 3" ;;
   esac
-  local conflict
+  local conflict conflict_iface
   conflict="$(local_cidr_conflict "$vpn_cidr" || true)"
   if [ -n "$conflict" ]; then
+    conflict_iface=""
+    if command -v ip >/dev/null 2>&1; then
+      conflict_iface="$(ip -4 -o addr show 2>/dev/null | awk -v c="$conflict" '$4 == c {print $2; exit}')"
+    fi
+    if [ -n "$conflict_iface" ]; then
+      die "网段 ${vpn_cidr} 和 ${conflict_iface} 上的 ${conflict} 重叠。如果是上次安装留下的 WireGuard, 先执行: wg-quick down ${conflict_iface} 2>/dev/null; rm -f /etc/wireguard/${conflict_iface}.conf 然后重新安装; 否则请改选 1、2 或 3"
+    fi
     die "网段 ${vpn_cidr} 和本机地址 ${conflict} 重叠, 请改选 1、2 或 3"
   fi
 
