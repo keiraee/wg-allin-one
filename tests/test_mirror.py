@@ -72,6 +72,12 @@ class MirrorTests(unittest.TestCase):
         self.assertIn("-C -", src)
         self.assertIn("--max-time 900", src)
 
+    def test_caddy_download_aborts_slow_direct(self):
+        """直连通但很慢时要主动放弃换镜像, 不能干等十几分钟。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertIn("--speed-limit 102400", src)
+        self.assertIn("--speed-time 15", src)
+
     def test_ip_detection_has_china_reachable_sources(self):
         src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")
         for host in ("ip.sb", "myip.ipip.net", "ipinfo.io"):

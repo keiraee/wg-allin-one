@@ -50,7 +50,10 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   local u got=0
   while IFS= read -r u; do
     [ "$u" = "${base}/${asset}" ] || warn "直连失败, 改走镜像: $u"
+    # --speed-limit/--speed-time: 直连虽然通但只有几十 KB/s 时, 15 秒就放弃换镜像,
+    # 否则 17MB 要下十几分钟(国内直连 GitHub 常见)
     if curl -fL -C - --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 \
+        --speed-limit 102400 --speed-time 15 \
         -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
         "$u" -o "${tmp}/${asset}"; then
       got=1
