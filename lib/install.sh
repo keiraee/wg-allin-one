@@ -68,6 +68,24 @@ PostDown = wan=\$(ip -4 route show default 2>/dev/null | awk '{print \$5; exit}'
 EOF
 }
 
+ensure_wg_up() {  # wg0 不在运行就拉起来(oneshot 单元 active(exited) 时 --now 不会重启)
+  local conf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
+  [ -f "$conf" ] || return 0
+  if command -v ip >/dev/null 2>&1 && ip link show wg0 >/dev/null 2>&1; then
+    return 0
+  fi
+  warn "wg0 没在运行, 尝试拉起来"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
+    systemctl restart wg-quick@wg0 2>/dev/null || true
+  fi
+  if command -v ip >/dev/null 2>&1 && ip link show wg0 >/dev/null 2>&1; then
+    log "wg0 已拉起"
+    return 0
+  fi
+  wg-quick up wg0 || warn "wg0 还是没起来, 看: journalctl -u wg-quick@wg0 -n 50"
+}
+
 init_wg_hub() {  # init_wg_hub <config_dir>
   local conf_dir="$1"
   local conf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
@@ -183,6 +201,7 @@ cmd_install() {
 
   if [ "$dry" -eq 0 ]; then
     init_wg_hub "$dest"
+    ensure_wg_up
   fi
 
   if [ "$dry" -eq 0 ]; then

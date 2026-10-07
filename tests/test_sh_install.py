@@ -163,6 +163,13 @@ class InstallTests(unittest.TestCase):
             body.index('WGAIO_CONFIG_DIR="$dest" run_wizard\n'),
             "cmd_install 里 install_deps 必须排在 run_wizard 之前")
 
+    def test_install_ensures_wg0_is_actually_up(self):
+        """wg-quick 是 oneshot: active(exited) 时 enable --now 不会重新拉起, 必须显式检查。"""
+        src = (ROOT / "lib" / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("ensure_wg_up()", src)
+        self.assertIn("systemctl restart wg-quick@wg0", src)
+        self.assertLess(src.index("init_wg_hub \"$dest\""), src.index("ensure_wg_up\n"))
+
     def test_render_wg0_conf_pure(self):
         """render_wg0_conf is pure: takes args, outputs WireGuard config to stdout."""
         script = (
