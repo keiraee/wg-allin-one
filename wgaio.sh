@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.0"
+VERSION="0.3.1"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
@@ -36,6 +36,40 @@ if [ "$need_bootstrap" = "1" ]; then
     printf '[wgaio] 错误: %s\n' "$1" >&2
     exit 1
   }
+  # 国内机器直连 GitHub 经常不通: 设 WGAIO_MIRROR=<前缀> 会按「直连 → 各镜像」依次试
+  boot_urls() {
+    printf '%s\n' "$1"
+    local m
+    for m in ${WGAIO_MIRROR:-}; do
+      case "$m" in
+        */) ;;
+        *) m="$m/" ;;
+      esac
+      printf '%s%s\n' "$m" "$1"
+    done
+  }
+  boot_get() {  # boot_get <url> <输出文件>; 状态码放 BOOT_HTTP
+    local u code first=""
+    while IFS= read -r u; do
+      code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+        -H 'Cache-Control: no-cache' -o "$2" -w '%{http_code}' "$u" || true)"
+      code="${code:-000}"
+      if [ "$code" = "200" ]; then BOOT_HTTP=200; return 0; fi
+      if [ "$code" != "000" ] && [ -z "$first" ]; then first="$code"; fi
+    done < <(boot_urls "$1")
+    BOOT_HTTP="${first:-000}"
+  }
+  boot_fetch() {  # boot_fetch <url> <输出文件>
+    local u
+    while IFS= read -r u; do
+      if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 \
+          -H 'Cache-Control: no-cache' "$u" -o "$2"; then
+        return 0
+      fi
+    done < <(boot_urls "$1")
+    return 1
+  }
+
   boot_ref_ok() {
     case "${1:-}" in
       ''|-*|*[!A-Za-z0-9._/-]*|*..*) return 1 ;;
@@ -48,13 +82,12 @@ if [ "$need_bootstrap" = "1" ]; then
   boot_ref_ok "$REF" || boot_fail "升级引用不合法"
   # 没指定时跟最新正式版。main 要显式 WGAIO_REF=main。能解析提交就按提交下载，避免分支缓存。
   if [ "$REF" = "latest" ]; then
-    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
-      -H 'Cache-Control: no-cache' -o "$work/release.json" -w '%{http_code}' \
-      "https://api.github.com/repos/${slug}/releases/latest" || true)"
+    boot_get "https://api.github.com/repos/${slug}/releases/latest" "$work/release.json"
+    code="$BOOT_HTTP"
     if [ "$code" = "404" ]; then
       boot_fail "还没有正式版 Release，请去掉 WGAIO_REF=latest 改用 main"
     fi
-    [ "$code" = "200" ] || boot_fail "访问 GitHub 失败 (HTTP ${code})"
+    [ "$code" = "200" ] || boot_fail "访问 GitHub 失败 (HTTP ${code}); 国内网络可以设 WGAIO_MIRROR=https://gh-proxy.com/ 再试"
     release_payload="$(cat "$work/release.json" || true)"
     if [[ "$release_payload" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
       REF="${BASH_REMATCH[1]}"
@@ -71,9 +104,8 @@ if [ "$need_bootstrap" = "1" ]; then
     export WGAIO_FETCH_COMMIT="$REF"
     archive="https://github.com/${slug}/archive/${REF}.tar.gz"
   else
-    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
-      -H 'Cache-Control: no-cache' -o "$work/commit.json" -w '%{http_code}' \
-      "https://api.github.com/repos/${slug}/commits/${REF}" || true)"
+    boot_get "https://api.github.com/repos/${slug}/commits/${REF}" "$work/commit.json"
+    code="$BOOT_HTTP"
     sha=""
     if [ "$code" = "200" ]; then
       commit_payload="$(cat "$work/commit.json" || true)"
@@ -93,9 +125,8 @@ if [ "$need_bootstrap" = "1" ]; then
       esac
     fi
   fi
-  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 \
-    -H 'Cache-Control: no-cache' "$archive" -o "$work/src.tgz" \
-    || boot_fail "套件下载失败"
+  boot_fetch "$archive" "$work/src.tgz" \
+    || boot_fail "套件下载失败。国内网络可以走加速: WGAIO_MIRROR=https://gh-proxy.com/ 再执行一次"
   stage="$work/tree"
   mkdir -p "$stage"
   tar xzf "$work/src.tgz" -C "$stage" --strip-components=1 --warning=no-timestamp \
@@ -195,6 +226,7 @@ usage() {
 抢先试用: WGAIO_REF=main wgaio upgrade
 设备管理细节: wgaio user --help
 短命令: wg 等价于 wgaio; wg show/set/genkey 等仍交给真正的 WireGuard
+国内网络: 直连 GitHub 失败时加 WGAIO_MIRROR=<加速前缀>(可多个, 空格分开)
 EOF
 }
 
