@@ -1,3 +1,4 @@
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -32,7 +33,23 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(data).hexdigest(), digest,
                              "SHA256SUMS 与文件内容不一致: %s" % name)
 
+    def test_readme_normalize_list_covers_all_shipped_files(self):
+        md = (ROOT / "README.md").read_text(encoding="utf-8")
+        m = re.search(r"ns='([^']+)'", md)
+        self.assertIsNotNone(m, "README 里找不到发版文件列表 ns='...'")
+        listed = set(m.group(1).split())
+        shipped = set()
+        for line in (ROOT / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                shipped.add(line.split(None, 1)[1].lstrip("*").strip())
+        self.assertEqual(shipped - listed, set(),
+                         "README 规范化列表漏了: %s" % sorted(shipped - listed))
+        self.assertEqual(listed - shipped, set(),
+                         "README 规范化列表多了: %s" % sorted(listed - shipped))
+
     def test_ci_workflow_runs_tests(self):
+
         yml = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
         self.assertIn("unittest", yml)
         self.assertIn("ubuntu-latest", yml)

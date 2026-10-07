@@ -376,13 +376,15 @@ cmd_verify() {
   export WGAIO_FETCH_COMMIT="$remote_sha"
   log "钉住提交: ${resolved} → ${remote_sha:0:12}"
   src="$(mktemp -d)"
+  local cleanup="$src"
   WGAIO_CLEAN_DIR="$src"
   download_commit_tree "$remote_sha" "$src" || die "套件下载失败。${MIRROR_HINT}"
   check_sha256 "$src"
   snapshot "$dir"
   apply_tree "$src" "$dir"
+  # 先 unset 再删: 顺序反了的话, 中途失败时 EXIT trap 会再去删一个已经删过的目录
   unset WGAIO_CLEAN_DIR
-  rm -rf "$src"
+  rm -rf "$cleanup"
   check_sha256 "$dir"
   write_track "$dir"
   if command -v systemctl >/dev/null 2>&1; then
