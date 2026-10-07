@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# 版本号只维护在 wgaio.sh 的 VERSION=，测试跟着源码走
+VERSION = (ROOT / "wgaio.sh").read_text(encoding="utf-8").split('VERSION="', 1)[1].split('"', 1)[0]
 
 
 def run_sh(*args):
@@ -53,7 +55,7 @@ class EntryTests(unittest.TestCase):
                            cwd=tmp, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("wgaio", r.stdout)
-        self.assertIn("0.2.3", r.stdout)
+        self.assertIn(VERSION, r.stdout)
         # Must not have created any download artifacts
         self.assertFalse((Path(tmp) / "lib").exists())
 
@@ -77,7 +79,7 @@ class EntryTests(unittest.TestCase):
         """套件齐全 → 不进入引导模式。"""
         r = run_sh("version")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("0.2.3", r.stdout)
+        self.assertIn(VERSION, r.stdout)
         self.assertNotIn("引导模式", r.stdout)
 
     def test_find_python_skips_broken_stub(self):
