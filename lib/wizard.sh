@@ -152,12 +152,13 @@ run_wizard() {
   # 5. 内网路由段
   lan_cidrs="$(ask '内网路由段(如 192.168.1.0/24, 让设备能访问家里/公司内网; 不需要直接回车)' '')"
 
-  # 6. 面板访问范围(菜单选择)
+  # 6. 面板访问范围(菜单选择)。公网一律按正式证书走，不再让用户挑明文/自签；
+  #    确实需要时用 WGAIO_TLS=self|http 显式指定。
   printf '面板从哪里可以打开:\n' >&2
   printf '  1) 仅 VPN 内(更安全)\n' >&2
-  printf '  2) 公网直接访问(方便, 令牌登录)\n' >&2
+  printf '  2) 公网直接访问(自动申请 Let'"'"'s Encrypt 正式证书)\n' >&2
   access_choice="$(ask '选 1 或 2' '1')"
-  local panel_bind="" https_choice="" domain="" tls_cn=""
+  local panel_bind="" tls_choice="${WGAIO_TLS:-}" domain="" tls_cn=""
   case "$access_choice" in
     1) ;;
     2) panel_bind="0.0.0.0" ;;
@@ -175,16 +176,21 @@ run_wizard() {
     fi
     tls_cn="$domain"
     log "面板将使用自动域名管理: $domain"
-    printf 'HTTPS:\n' >&2
-    printf '  1) 申请 Let'"'"'s Encrypt 正式证书(推荐, 浏览器不再提示不受信)\n' >&2
-    printf '  2) 自签证书(浏览器会提示不受信)\n' >&2
-    printf '  3) 纯 HTTP\n' >&2
-    https_choice="$(ask '选 1、2 或 3' '1')"
-    case "$https_choice" in
-      1|2) ;;
-      3) warn "已选纯 HTTP: 令牌明文传输, 公网环境可能被窃听, 强烈建议改用 HTTPS" ;;
-      *) die "无效选择, 请输入 1、2 或 3" ;;
+    [ -n "$tls_choice" ] || tls_choice="acme"
+    case "$tls_choice" in
+      acme)
+        log "公网面板一律申请 Let's Encrypt 正式证书: 需要放行 TCP 80, 且 80 空闲"
+        if tcp_port_busy 80; then
+          warn "本机 80 端口已被占用, 证书多半申请不到; 先腾出 80, 装完执行 wgaio cert"
+        fi
+        ;;
+      self) warn "WGAIO_TLS=self: 用自签证书, 浏览器会提示不受信" ;;
+      http) warn "WGAIO_TLS=http: 令牌明文传输, 公网环境可能被窃听" ;;
+      *) die "WGAIO_TLS 只能是 acme、self 或 http" ;;
     esac
+  elif [ -n "$tls_choice" ]; then
+    warn "WGAIO_TLS 只在公网面板时生效, 当前选的是仅 VPN 内, 已忽略"
+    tls_choice=""
   fi
 
   # 7. 面板端口
@@ -215,11 +221,11 @@ run_wizard() {
   if ! printf '%s' "$panel_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'; then
     panel_path="wgaio-$("$py" -c 'import secrets; print(secrets.token_hex(6))')"
   fi
-  if [ "$https_choice" = "1" ]; then
+  if [ "$tls_choice" = "acme" ]; then
     tls_mode="acme"
     tls_cert="${tls_root}/certs/wgaio.crt"
     tls_key="${tls_root}/certs/wgaio.key"
-  elif [ "$https_choice" = "2" ]; then
+  elif [ "$tls_choice" = "self" ]; then
     tls_mode="self"
     tls_cert="${tls_root}/certs/wgaio.crt"
     tls_key="${tls_root}/certs/wgaio.key"

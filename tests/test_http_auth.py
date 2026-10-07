@@ -228,5 +228,27 @@ class EphemeralPortTests(unittest.TestCase):
             h2.server_close()
 
 
+class ServeWarningTests(unittest.TestCase):
+    def _serve(self, cfg):
+        fake = mock.MagicMock()
+        fake.server_address = ("0.0.0.0", 8888)
+        fake.serve_forever.side_effect = KeyboardInterrupt
+        buf = io.StringIO()
+        with mock.patch("core.start_server", return_value=fake), \
+                mock.patch("core.ensure_panel_path", side_effect=lambda c: c), \
+                mock.patch("sys.stderr", buf):
+            core.serve(cfg)
+        return buf.getvalue()
+
+    def test_public_bind_without_cert_warns_plaintext(self):
+        """绑 0.0.0.0 又没有可用证书时必须警告，不能悄悄跑明文面板。"""
+        self.assertIn("明文", self._serve(
+            {"panel_bind": "0.0.0.0", "panel_port": 8888, "tls_cert": "", "tls_key": ""}))
+
+    def test_vpn_bind_without_cert_does_not_warn(self):
+        self.assertNotIn("明文", self._serve(
+            {"panel_bind": "10.66.66.1", "panel_port": 8888, "tls_cert": "", "tls_key": ""}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,19 +18,25 @@ cmd_status() {
     log "面板服务: (无 systemd, 无法查询)"
   fi
   if [ -f "$WGAIO_ROOT/config.json" ]; then
-    local py url
+    local py out url
     py="$(find_python)"
-    url="$("$py" -c 'import json,os,sys
+    out="$("$py" -c 'import json,os,sys
 d=json.load(open(sys.argv[1],encoding="utf-8"))
 cert=d.get("tls_cert") or ""
 scheme="https" if cert and os.path.isfile(cert) else "http"
-host=d.get("tls_cn") or d.get("panel_bind") or "127.0.0.1"
+bind=str(d.get("panel_bind") or "")
+host=d.get("tls_cn") or bind or "127.0.0.1"
 port=d.get("panel_port") or 8888
 path=str(d.get("panel_path") or "").strip().strip("/")
 suffix=("/"+path+"/") if path else "/"
-print("%s://%s:%s%s" % (scheme, host, port, suffix))' "$WGAIO_ROOT/config.json")"
+print("%s://%s:%s%s" % (scheme, host, port, suffix))
+print("1" if (scheme == "http" and bind == "0.0.0.0") else "0")' "$WGAIO_ROOT/config.json")"
+    url="$(printf '%s\n' "$out" | head -n 1)"
     log "面板地址: $url"
     log "只打开这一整条。只开端口会看到 404"
+    if [ "$(printf '%s\n' "$out" | tail -n 1)" = "1" ]; then
+      warn "面板绑在公网却没有可用证书, 现在是明文 HTTP, 令牌会明文过网; 放行 TCP 80 后执行 wgaio cert"
+    fi
   fi
   log "设备列表:"
   run_core user list || warn "设备列表读取失败(可能还没装完)"

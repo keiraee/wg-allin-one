@@ -1984,6 +1984,11 @@ def serve(cfg=None):
     scheme = "https" if (tls_cert and tls_key and Path(tls_cert).is_file()) else "http"
     host, port = httpd.server_address[0], httpd.server_address[1]
     print("wgaio 面板已启动: %s (令牌登录)" % panel_url(cfg, scheme, host, port), flush=True)
+    # 绑公网又没有可用证书 = 明文面板，不能只在启动日志里一笔带过
+    if scheme == "http" and str(cfg.get("panel_bind") or "").strip() == "0.0.0.0":
+        print("[wgaio] 警告: 面板绑定 0.0.0.0 但没有可用证书, 现在是明文 HTTP, "
+              "令牌会以明文经过网络。放行 TCP 80 后执行 wgaio cert, "
+              "或把 config.json 的 panel_bind 改回内网地址。", file=sys.stderr, flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
