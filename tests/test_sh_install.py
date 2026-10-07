@@ -152,6 +152,17 @@ class InstallTests(unittest.TestCase):
             if not existed:
                 cfg.unlink(missing_ok=True)
 
+    def test_install_deps_before_wizard(self):
+        """依赖必须先装：向导要用 python3 读本机网段并写 config.json，
+        而全新机器（Alpine / 最小化 Debian）上可能还没有 python3。
+        引导脚本 wgaio.sh 只用 bash/curl/tar，所以会一路走到向导再失败。"""
+        src = (ROOT / "lib" / "install.sh").read_text(encoding="utf-8")
+        body = src.split("cmd_install()", 1)[1]
+        self.assertLess(
+            body.index("    install_deps\n"),
+            body.index('WGAIO_CONFIG_DIR="$dest" run_wizard\n'),
+            "cmd_install 里 install_deps 必须排在 run_wizard 之前")
+
     def test_render_wg0_conf_pure(self):
         """render_wg0_conf is pure: takes args, outputs WireGuard config to stdout."""
         script = (

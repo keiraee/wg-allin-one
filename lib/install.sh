@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 安装主流程: 向导 → 目录/权限 → 文件就位 → 面板服务 → 安全组提示
+# 安装主流程: 系统依赖 → 向导 → 目录/权限 → 文件就位 → 面板服务 → 安全组提示
 # --dry-run: 只写 WGAIO_ROOT/_stage 暂存布局(测试/预览用), 不碰系统
 # shellcheck source=lib/core.sh
 . "$ROOT/lib/core.sh"
@@ -258,6 +258,11 @@ cmd_install() {
     dest="${WGAIO_DIR:-/opt/wgaio}"
   fi
   install -d -m 700 "$dest"
+  # 依赖必须先装：向导要用 python3 读本机网段并写 config.json，而新机器上可能还没有 python3。
+  # 引导脚本 wgaio.sh 只用 bash/curl/tar/sha256sum，所以没有 python3 也能走到这里。
+  if [ "$dry" -eq 0 ]; then
+    install_deps
+  fi
   # 再跑一次安装不能重写配置：登录密码会换掉，wg0.conf 却保持原样，隧道和面板对不上。
   if [ -f "$dest/config.json" ]; then
     if ! "$(find_python)" -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$dest/config.json"; then
@@ -267,10 +272,6 @@ cmd_install() {
     log "检测到已有配置, 跳过问答(不更换登录密码, 不改网段和端口)"
   else
     WGAIO_CONFIG_DIR="$dest" run_wizard
-  fi
-
-  if [ "$dry" -eq 0 ]; then
-    install_deps
   fi
 
   install -d -m 700 "$dest/clients" "$dest/lib" "$dest/panel" "$dest/bin"
