@@ -159,8 +159,8 @@ class InstallTests(unittest.TestCase):
         src = (ROOT / "lib" / "install.sh").read_text(encoding="utf-8")
         body = src.split("cmd_install()", 1)[1]
         self.assertLess(
-            body.index("    install_deps\n"),
-            body.index('WGAIO_CONFIG_DIR="$dest" run_wizard\n'),
+            body.index("install_deps"),
+            body.index('WGAIO_CONFIG_DIR="$dest" run_wizard'),
             "cmd_install 里 install_deps 必须排在 run_wizard 之前")
 
     def test_install_ensures_wg0_is_actually_up(self):

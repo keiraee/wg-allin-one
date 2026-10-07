@@ -6,6 +6,10 @@
 . "$ROOT/lib/wizard.sh"
 
 deps_install_once() {  # 装一次; 返回非 0 表示这次没装上
+  # 只记「本来没有、这次装上」的 WireGuard 包: 卸载时按这个删, 不动系统原有的东西。
+  # python3/iptables/openssl 是通用依赖, 不记也不删。
+  local had_wg=0
+  command -v wg >/dev/null 2>&1 && had_wg=1
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq || return 1
@@ -18,6 +22,12 @@ deps_install_once() {  # 装一次; 返回非 0 表示这次没装上
     apk add --no-cache wireguard-tools python3 iptables openssl || return 1
   else
     die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
+  fi
+  if [ "$had_wg" -eq 0 ] && command -v wg >/dev/null 2>&1; then
+    local mf="${WGAIO_PKG_MANIFEST:-${WGAIO_ROOT}/.wgaio-installed-pkgs}"
+    mkdir -p "$(dirname "$mf")" 2>/dev/null || true
+    printf 'wireguard\nwireguard-tools\n' >> "$mf" 2>/dev/null || true
+    sort -u -o "$mf" "$mf" 2>/dev/null || true
   fi
   return 0
 }
@@ -208,7 +218,7 @@ cmd_install() {
   # 依赖必须先装：向导要用 python3 读本机网段并写 config.json，而新机器上可能还没有 python3。
   # 引导脚本 wgaio.sh 只用 bash/curl/tar/sha256sum，所以没有 python3 也能走到这里。
   if [ "$dry" -eq 0 ]; then
-    install_deps
+    WGAIO_PKG_MANIFEST="$dest/.wgaio-installed-pkgs" install_deps
   fi
   # 再跑一次安装不能重写配置：登录密码会换掉，wg0.conf 却保持原样，隧道和面板对不上。
   if [ -f "$dest/config.json" ]; then

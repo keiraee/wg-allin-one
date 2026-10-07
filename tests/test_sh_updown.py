@@ -118,6 +118,21 @@ class UpgradeApplyTests(unittest.TestCase):
         # 快照里没有轨道文件时，回滚必须删掉升级刚写上的那份
         self.assertFalse((root / ".wgaio-track").exists())
 
+    def test_uninstall_defaults_to_full_cleanup(self):
+        """默认要连程序文件、caddy、本工具装的 WireGuard 包一起清; 开关能保留。"""
+        src = (ROOT / "lib" / "uninstall.sh").read_text(encoding="utf-8")
+        for flag in ("--keep-files", "--keep-pkgs", "--keep-clients", "--purge-wg"):
+            self.assertIn(flag, src)
+        self.assertIn('rm -rf "$root"', src)                 # 默认删安装目录
+        self.assertIn("apt-get purge -y $pkgs", src)         # 默认卸我们装的包
+        self.assertIn("other_wg", src)                       # 有别人的 WireGuard 就不删包
+        self.assertIn("--purge-wg", src)
+
+    def test_uninstall_keeps_dry_run_list_intact(self):
+        src = (ROOT / "lib" / "uninstall.sh").read_text(encoding="utf-8")
+        for word in ("config.json", "certs/", "99-wgaio.conf", "wg0", "--keep-clients"):
+            self.assertIn(word, src)
+
     def test_rollback_does_not_restore_config(self):
         import hashlib
         import shutil
