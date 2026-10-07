@@ -19,6 +19,12 @@ class PanelJsTests(unittest.TestCase):
         self.assertLess(body.index("if (!navigator.clipboard)"),
                         body.index("navigator.clipboard.writeText"))
 
+    def test_disabled_and_manual_peers_hide_actions(self):
+        """停用设备不给二维码/下载/换密钥；没有 # name: 的手工对等端不给「修改」。"""
+        rows = APP.split("function renderRows", 1)[1].split("\n}", 1)[0]
+        self.assertEqual(rows.count("p.has_client && !p.disabled"), 3)
+        self.assertIn("p.editable ?", rows)
+
     def test_edit_modal_shows_current_dns(self):
         """编辑弹窗要预填当前 DNS，并且留空保存能真的清掉（后端把空串当清除）。"""
         self.assertIn('value="${esc(p.dns || "")}"', APP)

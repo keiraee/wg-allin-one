@@ -163,11 +163,11 @@ function renderRows(st) {
       <td class="mono">${fmtBytes(p.rx)}</td>
       <td class="mono">${fmtBytes(p.tx)}</td>
       <td class="ops">
-        ${p.has_client ? `<button class="mini" data-action="qr" data-name="${esc(p.name)}">二维码</button>` : ""}
-        ${p.has_client ? `<button class="mini" data-action="dl" data-name="${esc(p.name)}">下载</button>` : ""}
+        ${p.has_client && !p.disabled ? `<button class="mini" data-action="qr" data-name="${esc(p.name)}">二维码</button>` : ""}
+        ${p.has_client && !p.disabled ? `<button class="mini" data-action="dl" data-name="${esc(p.name)}">下载</button>` : ""}
         ${activeBtn}
-        ${p.has_client ? `<button class="mini" data-action="rotate" data-name="${esc(p.name)}">换密钥</button>` : ""}
-        <button class="mini" data-action="edit" data-name="${esc(p.name)}">修改</button>
+        ${p.has_client && !p.disabled ? `<button class="mini" data-action="rotate" data-name="${esc(p.name)}">换密钥</button>` : ""}
+        ${p.editable ? `<button class="mini" data-action="edit" data-name="${esc(p.name)}">修改</button>` : ""}
         <button class="mini danger" data-action="del" data-name="${esc(p.name)}" data-gw="${p.is_gateway ? "1" : "0"}">删除</button>
       </td>
     </tr>`;

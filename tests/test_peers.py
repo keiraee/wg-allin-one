@@ -152,6 +152,18 @@ class DelEditTests(PeerBase):
         # 只剩路由时也照样下发给内核，而不是传空串
         self.assertEqual(m_set.call_args.kwargs["allowed_ips"], "192.168.5.0/24")
 
+    def test_list_marks_editable(self, m_gen, m_pub, m_set):
+        """没有 # name: 的手工对等端不能编辑（前端据此隐藏「修改」）。"""
+        core.add_peer("phone", None, None, None, None, None, CFG)
+        # 直接追加一段没有 # name: 的 [Peer]，模拟手工编辑 wg0.conf
+        raw = core.WG_CONF.read_text(encoding="utf-8")
+        core.WG_CONF.write_text(
+            raw + "\n[Peer]\nPublicKey = PUBX\nAllowedIPs = 10.66.66.9/32\n",
+            encoding="utf-8")
+        rows = {r["name"]: r for r in core.list_peers(live={})}
+        self.assertTrue(rows["phone"]["editable"])
+        self.assertFalse(rows["PUBX"]["editable"])
+
     def test_edit_dns_lists_and_clears(self, m_gen, m_pub, m_set):
         """列表要带出当前 DNS；dns 传空串表示清掉，回落到全局 client_dns。"""
         core.add_peer("phone", None, None, None, None, None, CFG)

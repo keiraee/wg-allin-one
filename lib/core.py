@@ -999,6 +999,8 @@ def list_peers(live=None):
             "has_client": has_client,
             "mode": (meta or {}).get("mode", "split"),
             "dns": (meta or {}).get("dns", ""),
+            # 没有 # name: 的手工对等端用公钥前缀显示，改名/改 IP 都无从下手
+            "editable": bool(p["name"]),
             "disabled": False,
         })
     seen = {row["name"] for row in rows}
@@ -1039,6 +1041,7 @@ def list_peers(live=None):
                 "has_client": has_client,
                 "mode": stored.get("mode") or "split",
                 "dns": str(stored.get("dns") or ""),
+                "editable": True,
                 "disabled": True,
             })
             seen.add(name)
