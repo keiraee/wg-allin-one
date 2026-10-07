@@ -63,7 +63,10 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
     [ "$u" = "${base}/${asset}" ] || warn "直连失败, 改走镜像: $u"
     # --speed-limit/--speed-time: 直连虽然通但只有几十 KB/s 时, 15 秒就放弃换镜像,
     # 否则 17MB 要下十几分钟(国内直连 GitHub 常见)
-    if curl -fL -C - --connect-timeout 15 --max-time 900 \
+    # 不用 -C -: 直连那半截可能是被劫持/损坏的内容, 跨来源续传会拼成
+    # "垃圾头 + 真包尾", 哈希必然对不上。每个地址都全新下载。
+    rm -f "${tmp}/${asset}"
+    if curl -fL --connect-timeout 15 --max-time 900 \
         --speed-limit 102400 --speed-time 15 \
         -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
         "$u" -o "${tmp}/${asset}"; then
@@ -77,8 +80,13 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   expected="$(caddy_pinned_sha "v${ver}" "$arch" || true)"
   if [ -z "$expected" ]; then
     # 没钉的版本才回退去下官方 checksums.txt
-    if ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
-      rm -rf "$tmp"; warn "下载 Caddy 校验文件失败。${MIRROR_HINT}"; return 1
+    # 校验文件只走 GitHub 直连, 不走镜像: 用镜像给的哈希去验镜像下的包等于没验
+    if ! curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+        -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+        "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
+      rm -rf "$tmp"
+      warn "拿不到官方校验文件(只认直连, 不走镜像), 换用自签证书"
+      return 1
     fi
     expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "${tmp}/sums.txt")"
   fi

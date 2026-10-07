@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULTS = ("gh-proxy.com", "ghfast.top", "ghproxy.net", "gh.llkk.cc")
+DEFAULTS = ("gh-proxy.com", "ghfast.top", "ghproxy.net", "gh.llkk.cc", "gh-proxy.net")
 
 
 def make_sandbox(tmp):
@@ -64,7 +64,7 @@ class MirrorTests(unittest.TestCase):
 
     def test_caddy_download_uses_mirror_helper(self):
         src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
-        self.assertIn("github_curl", src)
+        self.assertIn("github_urls", src)   # 依次试直连和各镜像
 
     def test_caddy_binary_uses_resume_and_long_timeout(self):
         """Caddy 包 18MB, 国内慢: 必须断点续传 + 放宽超时, 否则永远下不完。"""
@@ -91,6 +91,19 @@ class MirrorTests(unittest.TestCase):
         src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
         self.assertIn("删掉重下一遍", src)
         self.assertIn("got2", src)
+
+    def test_caddy_no_cross_source_resume(self):
+        """不能跨来源续传: 直连那半截可能是坏的, 拼上镜像的尾部必然对不上。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertNotIn("curl -fL -C -", src)   # 注释里提过 -C -, 只看命令行
+        self.assertIn("全新下载", src)
+
+    def test_caddy_checksum_file_is_direct_only(self):
+        """校验文件只走直连: 用镜像给的哈希去验镜像下的包等于没验。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        idx = src.index("caddy_$" + "{ver}_checksums.txt")
+        line = src[src.rindex("\n", 0, idx) + 1: idx]
+        self.assertNotIn("github_curl", line)
 
     def test_ip_detection_has_china_reachable_sources(self):
         src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")

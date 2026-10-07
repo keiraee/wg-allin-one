@@ -115,7 +115,7 @@ EOF
 
 # 国内机器直连 GitHub 经常不通: 默认「直连 → 公共加速站」依次试。
 # WGAIO_MIRROR 可以换成自己的前缀(多个用空格分开), WGAIO_NO_MIRROR=1 关掉自动加速。
-WGAIO_MIRRORS_DEFAULT="https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/ https://gh.llkk.cc/"
+WGAIO_MIRRORS_DEFAULT="https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/ https://gh.llkk.cc/ https://gh-proxy.net/"
 MIRROR_HINT='国内网络可以走加速: WGAIO_MIRROR=https://gh-proxy.com/ 再执行一次'
 
 wgaio_mirrors() {
