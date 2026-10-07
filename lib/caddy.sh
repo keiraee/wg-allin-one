@@ -84,8 +84,25 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   fi
   actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-    # 删掉半成品, 免得下次续传把坏文件接着拼
-    rm -rf "$tmp"; warn "Caddy 校验失败(镜像可能被篡改或缓存坏了), 换一个镜像再试: ${MIRROR_HINT}"; return 1
+    # 续传时如果镜像对 Range 请求回了整包(200 而不是 206), curl 会把整包追加在
+    # 残包后面, 文件就比真实的大。删掉重下一遍(这次不带 -C -, 全新下载)。
+    warn "Caddy 包校验没对上(续传可能把内容拼坏了), 删掉重下一遍"
+    rm -f "${tmp}/${asset}"
+    local u2 got2=0
+    while IFS= read -r u2; do
+      [ "$u2" = "${base}/${asset}" ] || warn "直连失败, 改走镜像: $u2"
+      if curl -fL --connect-timeout 15 --max-time 900 \
+          --speed-limit 102400 --speed-time 15 \
+          -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+          "$u2" -o "${tmp}/${asset}"; then
+        got2=1
+        break
+      fi
+    done < <(github_urls "${base}/${asset}")
+    actual="$(sha256sum "${tmp}/${asset}" 2>/dev/null | awk '{print $1}')"
+    if [ "$got2" -ne 1 ] || [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+      rm -rf "$tmp"; warn "Caddy 校验失败(镜像可能被篡改或缓存坏了), 换一个镜像再试: ${MIRROR_HINT}"; return 1
+    fi
   fi
   tar xzf "${tmp}/${asset}" -C "$tmp" caddy || { rm -rf "$tmp"; return 1; }
   install -m 0755 "${tmp}/caddy" /usr/local/bin/caddy || { rm -rf "$tmp"; return 1; }

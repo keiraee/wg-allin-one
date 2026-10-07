@@ -86,6 +86,12 @@ class MirrorTests(unittest.TestCase):
         self.assertIn("a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7", src)
         self.assertNotIn("--retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900", src)
 
+    def test_caddy_redownloads_when_hash_mismatch(self):
+        """续传拼坏文件时要删掉重下一遍, 不能直接放弃。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertIn("删掉重下一遍", src)
+        self.assertIn("got2", src)
+
     def test_ip_detection_has_china_reachable_sources(self):
         src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")
         for host in ("ip.sb", "myip.ipip.net", "ipinfo.io"):
