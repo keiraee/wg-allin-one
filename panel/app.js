@@ -64,13 +64,15 @@ function panelUrl(path) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(panelUrl(path), opts);
-  if (res.status === 401) {
+  const { raw401, ...init } = opts || {};
+  const res = await fetch(panelUrl(path), init);
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 非 JSON */ }
+  // 登录接口的 401 是「令牌错误」，要原样显示；其余 401 才当作会话过期
+  if (res.status === 401 && !raw401) {
     showLogin();
     throw new Error("未登录或会话过期");
   }
-  let data = null;
-  try { data = await res.json(); } catch (e) { /* 非 JSON */ }
   if (!res.ok) {
     const err = (data && data.error) ? data.error : ("请求失败 HTTP " + res.status);
     const e = new Error(err);
@@ -88,6 +90,7 @@ async function tryLogin() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: token }),
+      raw401: true,
     });
     $("login-mask").style.display = "none";
     $("login-err").textContent = "";
@@ -388,6 +391,11 @@ async function doRotate(name) {
 function copyConf() {
   const t = $("conf-text");
   if (!t) return;
+  // navigator.clipboard 只在 HTTPS 或 localhost 下存在，HTTP 面板里直接访问会同步抛错
+  if (!navigator.clipboard) {
+    showMsg("当前是 HTTP，浏览器不允许写剪贴板，请手动全选复制", true);
+    return;
+  }
   navigator.clipboard.writeText(t.textContent).then(
     () => showMsg("已复制到剪贴板"),
     () => showMsg("复制失败, 请手动全选复制", true));
