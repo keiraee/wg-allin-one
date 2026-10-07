@@ -417,7 +417,7 @@ function editPeer(name) {
     openModal("修改设备: " + p.name,
       `<label class="field">设备名<input id="e-name" maxlength="15" value="${esc(p.name)}"></label>
        <label class="field">内网 IP<input id="e-ip" class="mono" value="${esc(p.ip)}"></label>
-       <label class="field">DNS(重下载配置生效)<input id="e-dns" class="mono" value=""></label>
+       <label class="field">DNS(留空=用全局 DNS)<input id="e-dns" class="mono" value="${esc(p.dns || "")}"></label>
        <label class="field">保活(秒)<input id="e-ka" class="mono" value="${esc(String(p.keepalive != null ? p.keepalive : 25))}"></label>
        <label class="field">流量模式
          <select id="e-mode">
@@ -446,7 +446,7 @@ async function saveEdit(name) {
       body: JSON.stringify({
         new_name: $("e-name").value.trim(),
         ip: $("e-ip").value.trim(),
-        dns: $("e-dns").value.trim() || undefined,
+        dns: $("e-dns").value.trim(),
         keepalive: $("e-ka").value.trim(),
         mode: $("e-mode").dataset.dirty === "1" ? $("e-mode").value : undefined,
         routes: $("e-routes").value.trim(),

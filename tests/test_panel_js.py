@@ -19,6 +19,11 @@ class PanelJsTests(unittest.TestCase):
         self.assertLess(body.index("if (!navigator.clipboard)"),
                         body.index("navigator.clipboard.writeText"))
 
+    def test_edit_modal_shows_current_dns(self):
+        """编辑弹窗要预填当前 DNS，并且留空保存能真的清掉（后端把空串当清除）。"""
+        self.assertIn('value="${esc(p.dns || "")}"', APP)
+        self.assertIn('dns: $("e-dns").value.trim(),', APP)
+
     def test_login_error_keeps_server_message(self):
         """登录 401 要原样显示服务端的「令牌错误」，不能被 api() 的会话过期分支吃掉。"""
         self.assertIn("raw401", APP)

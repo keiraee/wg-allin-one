@@ -152,6 +152,19 @@ class DelEditTests(PeerBase):
         # 只剩路由时也照样下发给内核，而不是传空串
         self.assertEqual(m_set.call_args.kwargs["allowed_ips"], "192.168.5.0/24")
 
+    def test_edit_dns_lists_and_clears(self, m_gen, m_pub, m_set):
+        """列表要带出当前 DNS；dns 传空串表示清掉，回落到全局 client_dns。"""
+        core.add_peer("phone", None, None, None, None, None, CFG)
+        core.update_peer("phone", dns="8.8.8.8", cfg=CFG)
+        self.assertEqual(core.load_client_meta("phone")["dns"], "8.8.8.8")
+        self.assertIn("DNS = 8.8.8.8", core.show_conf("phone"))
+        row = [r for r in core.list_peers(live={}) if r["name"] == "phone"][0]
+        self.assertEqual(row["dns"], "8.8.8.8")
+        core.update_peer("phone", dns="", cfg=CFG)
+        self.assertEqual(core.load_client_meta("phone")["dns"], "")
+        self.assertIn("DNS = 1.1.1.1", core.show_conf("phone"))
+        self.assertEqual(core.list_peers(live={})[0]["dns"], "")
+
 
 @mock.patch("core.wg_set_peer")
 @mock.patch("core.server_pubkey", return_value="SPUB")
@@ -212,6 +225,17 @@ class ActiveRotateTests(PeerBase):
         self.assertEqual(meta["pubkey"], "MPUB")
         core.set_peer_active("manual", True, CFG)
         self.assertEqual(core.parse_conf()[1][0]["pubkey"], "MPUB")
+
+    def test_disabled_peer_dns_can_be_cleared(self, m_gen, m_pub, m_set):
+        """停用中的设备改 DNS 也走同一套语义（空串=清掉）。"""
+        core.add_peer("phone", None, None, None, None, None, CFG)
+        core.update_peer("phone", dns="8.8.8.8", cfg=CFG)
+        core.set_peer_active("phone", False, CFG)
+        core.update_peer("phone", dns="", cfg=CFG)
+        self.assertEqual(core.load_client_meta("phone")["dns"], "")
+        self.assertIn("DNS = 1.1.1.1", core.show_conf("phone"))
+        row = [r for r in core.list_peers(live={}) if r["name"] == "phone"][0]
+        self.assertEqual(row["dns"], "")
 
     def test_rotate_keeps_ip(self, m_gen, m_pub, m_set):
         m_gen.side_effect = [("PRIV", "PUB"), ("PRIV2", "PUB2")]

@@ -706,7 +706,8 @@ def _update_disabled_peer(name, new_name, ip, dns, keepalive, mode, routes, cfg)
         if mode not in ("split", "full"):
             raise ApiError("mode 只能是 split/full")
         meta["mode"] = mode
-    if dns:
+    # 空串表示清掉自定义 DNS，回落到 config.json 的 client_dns
+    if dns is not None:
         meta["dns"] = normalize_dns(dns)
     meta["disabled"] = True
     if priv and cur_ip:
@@ -772,7 +773,8 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
             if mode not in ("split", "full"):
                 raise ApiError("mode 只能是 split/full")
             meta["mode"] = mode
-        if dns:
+        # 空串表示清掉自定义 DNS，回落到 config.json 的 client_dns
+        if dns is not None:
             meta["dns"] = normalize_dns(dns)
         meta["disabled"] = False
 
@@ -996,6 +998,7 @@ def list_peers(live=None):
             "is_gateway": is_gateway(p, ip),
             "has_client": has_client,
             "mode": (meta or {}).get("mode", "split"),
+            "dns": (meta or {}).get("dns", ""),
             "disabled": False,
         })
     seen = {row["name"] for row in rows}
@@ -1035,6 +1038,7 @@ def list_peers(live=None):
                 "is_gateway": bool(routes),
                 "has_client": has_client,
                 "mode": stored.get("mode") or "split",
+                "dns": str(stored.get("dns") or ""),
                 "disabled": True,
             })
             seen.add(name)
