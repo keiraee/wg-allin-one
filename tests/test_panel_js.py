@@ -19,6 +19,16 @@ class PanelJsTests(unittest.TestCase):
         self.assertLess(body.index("if (!navigator.clipboard)"),
                         body.index("navigator.clipboard.writeText"))
 
+    def test_msg_timer_and_qr_url_cleanup(self):
+        """后一条提示不会被上一条的 5 秒定时器抹掉；二维码对象 URL 要回收。"""
+        self.assertIn("clearTimeout(msgTimer)", APP)
+        self.assertIn("URL.revokeObjectURL(qrUrl)", APP)
+        self.assertNotIn("img._url", APP)
+
+    def test_state_text_escaped(self):
+        """状态文本节点也要转义（纵深防御，state 目前是后端枚举）。"""
+        self.assertIn("${esc(STATE_TXT[p.state] || p.state)}", APP)
+
     def test_new_peer_mode_follows_default_mode(self):
         """新建设备的下拉框要跟随 /api/status 的 default_mode。"""
         self.assertIn("st.default_mode", APP)

@@ -3,15 +3,20 @@
 
 const $ = (id) => document.getElementById(id);
 
+let msgTimer = null;
+
 function showMsg(text, isErr) {
   const el = $("msg");
   el.textContent = text;
   el.className = isErr ? "err" : "";
   el.style.display = "block";
-  if (!isErr) setTimeout(() => { el.style.display = "none"; }, 5000);
+  // 不清理上一条的定时器，第二条提示会被第一条的 5 秒到点一起抹掉
+  if (msgTimer) clearTimeout(msgTimer);
+  msgTimer = isErr ? null : setTimeout(() => { el.style.display = "none"; }, 5000);
 }
 
 let joinTimer = null;
+let qrUrl = null;
 let joinBusy = false;
 
 function clearJoinTimer() {
@@ -29,6 +34,7 @@ function openModal(title, bodyHtml) {
 }
 function closeModal() {
   clearJoinTimer();
+  if (qrUrl) { URL.revokeObjectURL(qrUrl); qrUrl = null; }
   $("modal-mask").classList.remove("show");
 }
 $("modal-mask").addEventListener("click", (e) => {
@@ -155,7 +161,7 @@ function renderRows(st) {
       ? `<button class="mini" data-action="enable" data-name="${esc(p.name)}">启用</button>`
       : `<button class="mini" data-action="disable" data-name="${esc(p.name)}" data-gw="${p.is_gateway ? "1" : "0"}">停用</button>`;
     return `<tr class="${p.disabled ? "disabled" : ""}">
-      <td><span class="dot ${esc(p.state)}" title="${esc(STATE_TXT[p.state] || p.state)}"></span>${STATE_TXT[p.state] || p.state}</td>
+      <td><span class="dot ${esc(p.state)}" title="${esc(STATE_TXT[p.state] || p.state)}"></span>${esc(STATE_TXT[p.state] || p.state)}</td>
       <td>${esc(p.name)}${gw}</td>
       <td class="mono">${esc(p.ip)}</td>
       <td class="mono muted">${esc(routes)}</td>
@@ -311,9 +317,10 @@ async function attachQr(name) {
     if (res.status === 401) { showLogin(); return; }
     if (!res.ok) throw new Error("HTTP " + res.status);
     const blob = await res.blob();
-    if (img._url) URL.revokeObjectURL(img._url);
-    img._url = URL.createObjectURL(blob);
-    img.src = img._url;
+    // 每个弹窗都是新的 <img>，旧的对象 URL 挂在元素上永远回收不了
+    if (qrUrl) URL.revokeObjectURL(qrUrl);
+    qrUrl = URL.createObjectURL(blob);
+    img.src = qrUrl;
   } catch (e) {
     img.alt = "二维码生成失败";
   }
