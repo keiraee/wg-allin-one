@@ -12,7 +12,7 @@ class ReleaseTests(unittest.TestCase):
                      "lib/install.sh", "lib/user.sh", "lib/panel.sh",
                      "lib/upgrade.sh", "lib/uninstall.sh", "lib/status.sh",
                      "lib/logs.sh", "lib/menu.sh", "lib/backup.sh", "lib/qr.py",
-                     "lib/caddy.sh",
+                     "lib/caddy.sh", "lib/mirror.sh",
                      "bin/wgaio",
                      "panel/index.html", "panel/style.css", "panel/app.js"):
             self.assertIn(name, sums)

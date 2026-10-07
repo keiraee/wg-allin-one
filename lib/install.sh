@@ -5,24 +5,36 @@
 . "$ROOT/lib/core.sh"
 . "$ROOT/lib/wizard.sh"
 
-install_deps() {
-  log "安装系统依赖(wireguard / python3 / iptables)..."
+deps_install_once() {  # 装一次; 返回非 0 表示这次没装上
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq || warn "apt update 失败; 国内机器可以先把 /etc/apt/sources.list 换成国内镜像"
-    apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl \
-      || warn "依赖没装全; 国内机器建议先换 apt 源, 再执行 wgaio install"
+    apt-get update -qq || return 1
+    apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl || return 1
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y wireguard-tools python3 iptables openssl \
-      || warn "依赖没装全; 国内机器建议先换 dnf 源, 再执行 wgaio install"
+    dnf install -y wireguard-tools python3 iptables openssl || return 1
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y wireguard-tools python3 iptables openssl \
-      || warn "依赖没装全; 国内机器建议先换 yum 源, 再执行 wgaio install"
+    yum install -y wireguard-tools python3 iptables openssl || return 1
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache wireguard-tools python3 iptables openssl \
-      || warn "依赖没装全; 国内机器建议先换 apk 源, 再执行 wgaio install"
+    apk add --no-cache wireguard-tools python3 iptables openssl || return 1
   else
     die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
+  fi
+  return 0
+}
+
+install_deps() {
+  log "安装系统依赖(wireguard / python3 / iptables)..."
+  if deps_install_once; then
+    command -v wg >/dev/null 2>&1 || die "wireguard-tools 安装失败(wg 仍不可用)"
+    return 0
+  fi
+  # 国内机器直连发行版官方源经常超时/失败: 自动探测国内镜像, 替换后再试一次
+  warn "依赖没装上, 自动把系统源换成国内镜像后重试"
+  # shellcheck source=lib/mirror.sh
+  . "$ROOT/lib/mirror.sh"
+  if pkg_mirror_switch; then
+    deps_install_once \
+      || warn "换源后仍然失败, 请看上面的报错; 要还原原来的源执行: wgaio mirror restore"
   fi
   command -v wg >/dev/null 2>&1 || die "wireguard-tools 安装失败(wg 仍不可用)"
 }

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.2"
+VERSION="0.3.3"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
@@ -221,6 +221,7 @@ usage() {
   verify [--fix]          校验本地文件是否被改动, --fix 从轨道重新下载修复
   rollback                回滚到最近快照(不覆盖 config.json)
   uninstall               卸载
+mirror [restore]        把系统包源换成国内镜像 / 还原
 
 正式版: wgaio upgrade
 切回正式版: WGAIO_REF=latest wgaio upgrade
@@ -249,6 +250,7 @@ case "$cmd" in
   rollback) shift; . "$ROOT/lib/upgrade.sh"; cmd_rollback "$@" ;;
   verify) shift; . "$ROOT/lib/upgrade.sh"; cmd_verify "$@" ;;
   cert) shift; . "$ROOT/lib/install.sh"; cmd_cert "$@" ;;
+  mirror) shift; . "$ROOT/lib/mirror.sh"; cmd_mirror "$@" ;;
   install|upgrade|uninstall|panel|status|logs|backup)
     mod="$ROOT/lib/${cmd}.sh"
     [ -f "$mod" ] || die "模块未安装: $cmd"

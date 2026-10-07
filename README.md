@@ -2,7 +2,7 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
-当前正式版是 [v0.3.2](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.2)。
+当前正式版是 [v0.3.3](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.3)。
 
 更新有两条轨道：
 
@@ -14,7 +14,7 @@
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.2/wgaio.sh -o wgaio.sh
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.3/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -45,10 +45,10 @@ sudo bash wgaio.sh install
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.2`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.3`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.2`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.3`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
@@ -94,11 +94,26 @@ WGAIO_NO_MIRROR=1 wgaio upgrade
 第一次装如果 `raw.githubusercontent.com` 打不开，可以借加速站取脚本：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.2/wgaio.sh -o wgaio.sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.3/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
-`apt/dnf/yum/apk` 装系统依赖走的是发行版源，国内机器没换源会很慢甚至失败，wgaio 会提示你先换源。镜像只换下载通道，套件内容仍按 `SHA256SUMS` 校验；加速站是第三方，介意就设 `WGAIO_NO_MIRROR=1`。
+### 系统包源也会自动换
+
+`apt/dnf/yum/apk` 装依赖如果失败，wgaio 会自动探测国内镜像站（阿里云 → 腾讯云 → 清华 → 中科大 → 华为云，取第一个能通的），**把系统包源替换掉再重试一次**：
+
+- Debian / Ubuntu：重写 `/etc/apt/sources.list`，原文件备份为 `sources.list.wgaio.bak`，`/etc/apt/sources.list.d` 里的旧源挪到 `sources.list.d.wgaio-saved/`
+- Alpine：重写 `/etc/apk/repositories`，备份为 `repositories.wgaio.bak`
+- 想手动执行或还原：
+
+```bash
+wgaio mirror            # 立刻把系统包源换成国内镜像
+wgaio mirror restore    # 还原成原来的源
+```
+
+dnf/yum 的源文件格式各家不同，没做自动替换，失败时会提示你手动换。
+
+镜像只换下载通道，套件内容仍按 `SHA256SUMS` 校验；加速站是第三方，介意就设 `WGAIO_NO_MIRROR=1`。
 
 ## 子命令
 
