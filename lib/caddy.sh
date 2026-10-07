@@ -21,6 +21,17 @@ WGAIO_CADDY_LOG="${WGAIO_CADDY_LOG:-/var/log/wgaio}"
 WGAIO_CADDY_UNIT="${WGAIO_CADDY_UNIT:-/etc/systemd/system/wgaio-caddy.service}"
 WGAIO_CADDY_VERSION="${WGAIO_CADDY_VERSION:-v2.11.7}"
 
+caddy_pinned_sha() {  # <版本> <架构> → 官方 SHA256; 没钉的版本返回 1
+  # 版本是钉死的, 哈希就直接写在这儿: 国内经常连那个几十字节的 checksums.txt
+  # 都拿不到, 结果整包作废(包其实已经下完了)。
+  case "$1:$2" in
+    v2.11.7:amd64) printf '%s' "a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7" ;;
+    v2.11.7:arm64) printf '%s' "3db36ba90c7a6e8dda40ee3dd71fa08844c76b5fb08f61b31e5e78d2ed38e71c51dc7baed875e50d1ca1279196e84302967237386ae87c91ae9f2aaceada682e" ;;
+    v2.11.7:armv7) printf '%s' "6eb3894f9a215f75f3ec50e627c34b2cd6fb81d10ec7838f27c30dcf417b810f618136b507766bc17e7400a5c0f4fa6001bb062ebb7a401ee63505012615825e" ;;
+    *) return 1 ;;
+  esac
+}
+
 caddy_bin() {  # 找一个可用的 caddy; 找不到返回 1
   local c
   for c in "${WGAIO_CADDY_BIN:-}" "$(command -v caddy 2>/dev/null || true)" \
@@ -52,7 +63,7 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
     [ "$u" = "${base}/${asset}" ] || warn "直连失败, 改走镜像: $u"
     # --speed-limit/--speed-time: 直连虽然通但只有几十 KB/s 时, 15 秒就放弃换镜像,
     # 否则 17MB 要下十几分钟(国内直连 GitHub 常见)
-    if curl -fL -C - --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 \
+    if curl -fL -C - --connect-timeout 15 --max-time 900 \
         --speed-limit 102400 --speed-time 15 \
         -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
         "$u" -o "${tmp}/${asset}"; then
@@ -63,10 +74,14 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   if [ "$got" -ne 1 ]; then
     rm -rf "$tmp"; warn "下载 Caddy 失败。${MIRROR_HINT}"; return 1
   fi
-  if ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
-    rm -rf "$tmp"; warn "下载 Caddy 校验文件失败。${MIRROR_HINT}"; return 1
+  expected="$(caddy_pinned_sha "v${ver}" "$arch" || true)"
+  if [ -z "$expected" ]; then
+    # 没钉的版本才回退去下官方 checksums.txt
+    if ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
+      rm -rf "$tmp"; warn "下载 Caddy 校验文件失败。${MIRROR_HINT}"; return 1
+    fi
+    expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "${tmp}/sums.txt")"
   fi
-  expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "${tmp}/sums.txt")"
   actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
     # 删掉半成品, 免得下次续传把坏文件接着拼

@@ -78,6 +78,14 @@ class MirrorTests(unittest.TestCase):
         self.assertIn("--speed-limit 102400", src)
         self.assertIn("--speed-time 15", src)
 
+    def test_caddy_sha_is_pinned(self):
+        """Caddy 的哈希要钉在代码里: 国内连 checksums.txt 都经常拿不到。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertIn("caddy_pinned_sha", src)
+        self.assertIn("v2.11.7:amd64", src)
+        self.assertIn("a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7", src)
+        self.assertNotIn("--retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900", src)
+
     def test_ip_detection_has_china_reachable_sources(self):
         src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")
         for host in ("ip.sb", "myip.ipip.net", "ipinfo.io"):
