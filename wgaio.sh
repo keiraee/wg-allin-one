@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.5"
+VERSION="0.3.6"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
@@ -41,7 +41,7 @@ if [ "$need_bootstrap" = "1" ]; then
   boot_urls() {
     printf '%s\n' "$1"
     local m
-    for m in ${WGAIO_MIRROR:-${WGAIO_MIRRORS_DEFAULT:-https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/}}; do
+    for m in ${WGAIO_MIRROR:-${WGAIO_MIRRORS_DEFAULT:-https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/ https://gh.llkk.cc/}}; do
       case "$m" in
         */) ;;
         *) m="$m/" ;;

@@ -135,6 +135,13 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertLess(src.index("install_wgaio_caddy"),
                         src.index("systemctl try-restart wgaio-panel"))
 
+    def test_falls_back_to_self_signed_without_caddy(self):
+        """Caddy 下不下来时不能让安装死掉: 退回 openssl 自签 + 面板直接 HTTPS。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertIn("fallback_self_signed", src)
+        self.assertNotIn('die "Caddy 不可用', src)
+        self.assertIn('d["tls_mode"] = "self"', src)
+
     @unittest.skipUnless(CADDY, "需要 caddy 才能校验(设 WGAIO_CADDY_BIN)")
     def test_generated_files_pass_real_caddy(self):
         for mode, challenge in (("acme", "http"), ("acme", "tls-alpn"),

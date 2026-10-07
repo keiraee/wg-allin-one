@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULTS = ("gh-proxy.com", "ghfast.top", "ghproxy.net")
+DEFAULTS = ("gh-proxy.com", "ghfast.top", "ghproxy.net", "gh.llkk.cc")
 
 
 def make_sandbox(tmp):
@@ -40,7 +40,7 @@ class MirrorTests(unittest.TestCase):
     def test_direct_first_then_builtin_mirrors(self):
         got = self._urls()
         self.assertEqual(got[0], "https://api.github.com/x")
-        self.assertEqual(len(got), 4)                     # 直连 + 3 个默认加速站
+        self.assertEqual(len(got), len(DEFAULTS) + 1)     # 直连 + 各默认加速站
         for m in DEFAULTS:
             self.assertIn("https://%s/https://api.github.com/x" % m, got)
 

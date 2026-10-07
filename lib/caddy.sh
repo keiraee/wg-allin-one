@@ -129,6 +129,40 @@ PY
   return 0
 }
 
+fallback_self_signed() {  # 没有 Caddy 时的兜底: openssl 自签 + Python 面板直接对外提供 HTTPS
+  local cfg="$1" domain="$2" port="$3" root cert key
+  root="$(dirname "$cfg")"
+  cert="$root/certs/wgaio.crt"
+  key="$root/certs/wgaio.key"
+  mkdir -p "$root/certs"
+  if command -v openssl >/dev/null 2>&1; then
+    rm -f "$cert" "$key"
+    openssl req -x509 -newkey rsa:2048 -keyout "$key" -out "$cert" -days 3650 -nodes \
+      -subj "/CN=${domain}" -addext "subjectAltName=DNS:${domain}" 2>/dev/null \
+      || openssl req -x509 -newkey rsa:2048 -keyout "$key" -out "$cert" -days 3650 -nodes \
+           -subj "/CN=${domain}" 2>/dev/null || true
+    chmod 600 "$key" "$cert" 2>/dev/null || true
+  fi
+  "$(find_python)" - "$cfg" "$cert" "$key" "$port" <<'PY'
+import json, sys
+p, cert, key, port = sys.argv[1:5]
+with open(p, encoding="utf-8") as f:
+    d = json.load(f)
+# 清掉内部端口: Python 面板直接对外监听, 不再经 Caddy
+d["panel_backend_port"] = ""
+d["panel_port"] = int(port)
+if cert:
+    d["tls_cert"] = cert
+    d["tls_key"] = key
+    d["tls_mode"] = "self"
+with open(p, "w", encoding="utf-8") as f:
+    f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+PY
+  chmod 600 "$cfg" 2>/dev/null || true
+  log "面板已改为直接提供 HTTPS(自签): https://${domain}:${port}/"
+  warn "等能连上 GitHub 了, 重新执行 wgaio install 会换成 Caddy 自动申请正式证书"
+}
+
 pick_challenge() {  # http / tls-alpn / 空(两个端口都被占)
   if ! tcp_port_busy 80; then printf 'http'; return 0; fi
   if ! tcp_port_busy 443; then printf 'tls-alpn'; return 0; fi
@@ -221,7 +255,12 @@ install_wgaio_caddy() {  # install_wgaio_caddy <config.json>
       mode="internal"
     fi
   fi
-  bin="$(install_caddy_bin)" || die "Caddy 不可用, 面板 HTTPS 起不来"
+  bin="$(install_caddy_bin)" || bin=""
+  if [ -z "$bin" ]; then
+    warn "Caddy 装不上(GitHub 太慢/连不上), 先用自签证书让面板直接提供 HTTPS"
+    fallback_self_signed "$cfg" "$domain" "$port"
+    return 0
+  fi
   install -d -m 755 "$WGAIO_CADDY_DIR" "$WGAIO_CADDY_LOG"
   install -d -m 700 "$WGAIO_CADDY_DATA"
   render_caddyfile "$domain" "$port" "$backend" "$mode" "$challenge" \
