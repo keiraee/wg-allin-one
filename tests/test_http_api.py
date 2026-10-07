@@ -110,6 +110,13 @@ class ApiTests(ApiTestBase):
         st, hd, body = self.req("POST", "/api/peers", "not-dict")
         self.assertIn(st, (400, 415))
 
+    def test_status_reports_default_mode(self, m_gen, m_pub, m_set):
+        """面板新建设备要能拿到 default_mode，否则下拉框永远按 split 提交。"""
+        self.httpd.app_cfg = dict(self.cfg, default_mode="full")
+        st, hd, body = self.req("GET", "/api/status")
+        self.assertEqual(st, 200, body)
+        self.assertEqual(json.loads(body)["default_mode"], "full")
+
     def test_qr_too_long_returns_400(self, m_gen, m_pub, m_set):
         """配置长到二维码放不下时返回 400 和明确文案，而不是 500「内部错误」。"""
         self.assertEqual(self.req("POST", "/api/peers", {"name": "phone"})[0], 200)

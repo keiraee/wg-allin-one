@@ -187,11 +187,15 @@ async function refresh() {
       ? "公网可访问 · 建议使用 HTTPS"
       : (bind ? "只监听 " + bind : "管理面板");
     if (!$("f-ip").value) $("f-ip").placeholder = st.next_ip || "地址池已满";
+    // 新建设备的默认流量模式跟 config.json 的 default_mode，用户没动过才覆盖
+    if ($("f-mode").dataset.dirty !== "1") $("f-mode").value = st.default_mode || "split";
     renderRows(st);
   } catch (e) {
     if (e.message !== "未登录或会话过期") showMsg("加载状态失败: " + e.message, true);
   }
 }
+
+$("f-mode").addEventListener("change", () => { $("f-mode").dataset.dirty = "1"; });
 
 $("btn-add").addEventListener("click", async () => {
   const name = $("f-name").value.trim();

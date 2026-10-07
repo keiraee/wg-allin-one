@@ -19,6 +19,11 @@ class PanelJsTests(unittest.TestCase):
         self.assertLess(body.index("if (!navigator.clipboard)"),
                         body.index("navigator.clipboard.writeText"))
 
+    def test_new_peer_mode_follows_default_mode(self):
+        """新建设备的下拉框要跟随 /api/status 的 default_mode。"""
+        self.assertIn("st.default_mode", APP)
+        self.assertIn('$("f-mode").dataset.dirty', APP)
+
     def test_disabled_and_manual_peers_hide_actions(self):
         """停用设备不给二维码/下载/换密钥；没有 # name: 的手工对等端不给「修改」。"""
         rows = APP.split("function renderRows", 1)[1].split("\n}", 1)[0]

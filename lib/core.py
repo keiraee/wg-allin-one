@@ -1070,6 +1070,7 @@ def full_status(cfg):
                   "public_key": server_pubkey()},
         "endpoint": cfg.get("endpoint", ""),
         "panel_bind": cfg.get("panel_bind") or "",
+        "default_mode": cfg.get("default_mode") or "split",
         "default_allowed": default_allowed(cfg, peers),
         "next_ip": nip,
         "peers": list_peers(live=live),
