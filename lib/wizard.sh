@@ -26,23 +26,7 @@ ask() {  # ask "提示" "默认值" → stdout 答案
   printf '%s' "${ans:-$def}"
 }
 
-udp_port_busy() {
-  local port="$1" hits
-  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
-  [ "${WGAIO_BUSY_UDP:-}" = "$port" ] && return 0
-  command -v ss >/dev/null 2>&1 || return 1
-  hits="$(ss -H -uln "sport = :$port" 2>/dev/null || true)"
-  [ -n "$hits" ]
-}
-
-tcp_port_busy() {
-  local port="$1" hits
-  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
-  [ "${WGAIO_BUSY_TCP:-}" = "$port" ] && return 0
-  command -v ss >/dev/null 2>&1 || return 1
-  hits="$(ss -H -tln "sport = :$port" 2>/dev/null || true)"
-  [ -n "$hits" ]
-}
+# udp_port_busy / tcp_port_busy 在 lib/core.sh（caddy.sh 也要用）
 
 valid_port() {  # 08 按十进制 8，不按八进制报错；拒绝 0 和大于 65535
   local p="$1" n
@@ -152,52 +136,73 @@ run_wizard() {
   # 5. 内网路由段
   lan_cidrs="$(ask '内网路由段(如 192.168.1.0/24, 让设备能访问家里/公司内网; 不需要直接回车)' '')"
 
-  # 6. 面板访问范围(菜单选择)。公网一律按正式证书走，不再让用户挑明文/自签；
-  #    确实需要时用 WGAIO_TLS=self|http 显式指定。
+  # 6. 面板访问范围(菜单选择)。面板 TLS 交给 wgaio 自己的 Caddy：公网一律自动申请正式证书，
+  #    只有显式 WGAIO_TLS=internal|off 才用自签/明文。
   printf '面板从哪里可以打开:\n' >&2
   printf '  1) 仅 VPN 内(更安全)\n' >&2
   printf '  2) 公网直接访问(自动申请 Let'"'"'s Encrypt 正式证书)\n' >&2
   access_choice="$(ask '选 1 或 2' '1')"
-  local panel_bind="" tls_choice="${WGAIO_TLS:-}" domain="" tls_cn=""
+  local panel_bind="" tls_choice="${WGAIO_TLS:-}" domain="" tls_cn="" gw_ip
+  gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$vpn_cidr")"
   case "$access_choice" in
-    1) ;;
+    1) panel_bind="$gw_ip" ;;
     2) panel_bind="0.0.0.0" ;;
     *) die "无效选择, 请输入 1 或 2" ;;
   esac
+  case "$tls_choice" in
+    self) tls_choice="internal" ;;
+    http) tls_choice="off" ;;
+  esac
 
   if [ "$access_choice" = "2" ]; then
-    local ip_part
+    local ip_part default_domain
     ip_part="${endpoint%%:*}"
-    # 只有纯 IPv4 才拼 sslip.io。域名本身就能打开面板，不能再改写成 xxx.sslip.io。
+    # 默认自动域名：纯 IPv4 拼 sslip.io；endpoint 本来就是域名就直接用它。
     if printf '%s' "$ip_part" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
-      domain="$(printf '%s' "$ip_part" | tr '.' '-').sslip.io"
+      default_domain="$(printf '%s' "$ip_part" | tr '.' '-').sslip.io"
     else
-      domain="$ip_part"
+      default_domain="$ip_part"
+    fi
+    # 有自己的域名就填(证书签它)；直接回车走 sslip.io，证书一样自动申请。
+    domain="${WGAIO_DOMAIN:-$(ask '面板/证书域名(没有域名就直接回车)' "$default_domain")}"
+    [ -n "$domain" ] || domain="$default_domain"
+    if ! printf '%s' "$domain" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$' \
+        || printf '%s' "$domain" | grep -q '\.\.'; then
+      die "域名格式不对: $domain"
     fi
     tls_cn="$domain"
-    log "面板将使用自动域名管理: $domain"
     [ -n "$tls_choice" ] || tls_choice="acme"
     case "$tls_choice" in
       acme)
-        log "公网面板一律申请 Let's Encrypt 正式证书: 需要放行 TCP 80, 且 80 空闲"
-        if tcp_port_busy 80; then
-          warn "本机 80 端口已被占用, 证书多半申请不到; 先腾出 80, 装完执行 wgaio cert"
-        fi
+        log "面板域名 $domain：Caddy 会自动申请并续期正式证书"
+        log "申请时 80(HTTP-01) 或 443(TLS-ALPN-01) 要有一个空闲, 域名也要能解析到本机"
         ;;
-      self) warn "WGAIO_TLS=self: 用自签证书, 浏览器会提示不受信" ;;
-      http) warn "WGAIO_TLS=http: 令牌明文传输, 公网环境可能被窃听" ;;
-      *) die "WGAIO_TLS 只能是 acme、self 或 http" ;;
+      internal) warn "WGAIO_TLS=internal: 用自签证书, 浏览器会提示不受信" ;;
+      off) warn "WGAIO_TLS=off: 令牌明文传输, 公网环境可能被窃听" ;;
+      *) die "WGAIO_TLS 只能是 acme、internal(self) 或 off(http)" ;;
     esac
-  elif [ -n "$tls_choice" ]; then
-    warn "WGAIO_TLS 只在公网面板时生效, 当前选的是仅 VPN 内, 已忽略"
-    tls_choice=""
+  else
+    tls_cn="$gw_ip"
+    if [ "$tls_choice" = "acme" ]; then
+      warn "仅 VPN 内模式没有公网域名, WGAIO_TLS=acme 用不上, 改用明文 HTTP"
+      tls_choice="off"
+    fi
+    [ -n "$tls_choice" ] || tls_choice="off"
+    case "$tls_choice" in
+      internal) warn "WGAIO_TLS=internal: 面板用自签 HTTPS, 浏览器会提示不受信" ;;
+      off) ;;
+      *) die "WGAIO_TLS 只能是 acme、internal(self) 或 off(http)" ;;
+    esac
   fi
 
-  # 7. 面板端口
-  panel_port="$(ask '面板端口' '8888')"
+  # 7. 面板端口(Caddy 对外监听；后端只在 127.0.0.1)
+  panel_port="$(ask '面板 HTTPS 端口' '8443')"
   valid_port "$panel_port" || die "端口必须是纯数字(1-65535)"
+  if [ "$panel_port" = "80" ]; then
+    die "面板不能占用 80: Caddy 申请证书和跳转都要用它"
+  fi
   if tcp_port_busy "$panel_port"; then
-    die "面板端口 ${panel_port} 已被占用, 请换一个"
+    die "面板端口 ${panel_port} 已被占用, 请换一个(同机装了 HY2 就别用它的端口)"
   fi
 
   # 8. 流量模式(菜单选择)
@@ -215,27 +220,20 @@ run_wizard() {
   token="$("$py" -c 'import secrets,string as s; a=s.ascii_letters+s.digits; g=lambda n:"".join(secrets.choice(a) for _ in range(n)); print("wgaio-" + "-".join(g(5) for _ in range(4)))')"
   hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
-  local tls_cert="" tls_key="" tls_root tls_mode="" panel_path
-  tls_root="${WGAIO_CONFIG_DIR:-$WGAIO_ROOT}"
+  local tls_mode="" panel_path panel_backend_port
+  panel_backend_port="${WGAIO_BACKEND_PORT:-8888}"
+  valid_port "$panel_backend_port" || die "后端端口必须是纯数字(1-65535)"
   panel_path="${WGAIO_PANEL_PATH:-}"
   if ! printf '%s' "$panel_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'; then
     panel_path="wgaio-$("$py" -c 'import secrets; print(secrets.token_hex(6))')"
   fi
-  if [ "$tls_choice" = "acme" ]; then
-    tls_mode="acme"
-    tls_cert="${tls_root}/certs/wgaio.crt"
-    tls_key="${tls_root}/certs/wgaio.key"
-  elif [ "$tls_choice" = "self" ]; then
-    tls_mode="self"
-    tls_cert="${tls_root}/certs/wgaio.crt"
-    tls_key="${tls_root}/certs/wgaio.key"
-  fi
+  tls_mode="$tls_choice"
 
   "$py" - "$vpn_cidr" "$wg_port" "$endpoint" "$client_dns" "$lan_cidrs" \
         "$panel_bind" "$panel_port" "$def_mode" "$hash" \
-        "$tls_cert" "$tls_key" "$tls_cn" "$tls_mode" "$panel_path" <<'PY'
+        "$tls_cn" "$tls_mode" "$panel_path" "$panel_backend_port" <<'PY'
 import json, os, re, sys
-vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cert, tls_key, tls_cn, tls_mode, panel_path = sys.argv[1:]
+vpn_cidr, wg_port, endpoint, client_dns, lan_cidrs, panel_bind, panel_port, mode, thash, tls_cn, tls_mode, panel_path, backend_port = sys.argv[1:]
 root = os.environ.get("WGAIO_ROOT", ".")
 out_root = os.environ.get("WGAIO_CONFIG_DIR") or root
 sys.path.insert(0, os.path.join(root, "lib"))
@@ -247,6 +245,7 @@ except ApiError as e:
 try:
     wg_port_i = int(wg_port)
     panel_port_i = int(panel_port)
+    backend_port_i = int(backend_port)
 except ValueError:
     sys.exit("错误: 端口必须是纯数字(1-65535)")
 try:
@@ -261,6 +260,7 @@ cfg = {
     "lan_cidrs": [x.strip() for x in lan_cidrs.split(",") if x.strip()],
     "panel_bind": panel_bind or int_to_ip(base + 1),
     "panel_port": panel_port_i,
+    "panel_backend_port": backend_port_i,
     "panel_token_hash": thash,
     "default_mode": mode,
     "panel_path": panel_path,
@@ -269,9 +269,6 @@ if tls_cn:
     cfg["tls_cn"] = tls_cn
 if tls_mode:
     cfg["tls_mode"] = tls_mode
-if tls_cert:
-    cfg["tls_cert"] = tls_cert
-    cfg["tls_key"] = tls_key
 try:
     validate_config(cfg)
 except ApiError as e:
@@ -283,16 +280,12 @@ PY
 
   printf '\n===== 面板登录密码(只显示这一次, 请立即保存) =====\n%s\n=====================================================\n' "$token"
 
-  if [ "$access_choice" = "2" ]; then
-    local scheme="http"
-    [ -n "$tls_cert" ] && scheme="https"
-    log "面板访问地址: ${scheme}://${domain}:${panel_port}/${panel_path}/"
-    log "只打开这一整条。只开端口 ${panel_port} 会看到 404"
-    if [ "$tls_mode" = "acme" ]; then
-      log "安装时会申请 Let's Encrypt 证书, 请先放行 TCP 80, 并保证 80 没被别的程序占用"
-    fi
-  else
-    log "面板只在 VPN 内打开, 地址后面带 /${panel_path}/"
+  local scheme="https"
+  [ "$tls_mode" = "off" ] && scheme="http"
+  log "面板访问地址: ${scheme}://${tls_cn}:${panel_port}/${panel_path}/"
+  log "只打开这一整条。只开端口 ${panel_port} 会看到 404"
+  if [ "$access_choice" = "2" ] && [ "$tls_mode" = "acme" ]; then
+    log "Caddy 会自动申请正式证书; 申请不到会先用自签, 腾出 80/443 后执行 wgaio cert"
   fi
   log "配置已写入 config.json"
 }

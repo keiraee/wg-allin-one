@@ -45,6 +45,8 @@ DEFAULTS = {
     "lan_cidrs": [],
     "panel_bind": "",
     "panel_port": 8888,
+    # Caddy 前置时 Python 面板的内部端口；空表示老配置，仍用 panel_port
+    "panel_backend_port": "",
     "panel_token_hash": "",
     "default_mode": "split",
     "tls_cert": "",
@@ -119,8 +121,16 @@ def validate_config(cfg):
             except ValueError:
                 raise ApiError("panel_bind 必须是 IPv4 或 0.0.0.0: %s" % pb)
     mode_tls = str(cfg.get("tls_mode") or "").strip()
-    if mode_tls and mode_tls not in ("acme", "self"):
-        raise ApiError("tls_mode 只能是 acme 或 self")
+    if mode_tls and mode_tls not in ("acme", "self", "internal", "off"):
+        raise ApiError("tls_mode 只能是 acme、internal、self 或 off")
+    bp = str(cfg.get("panel_backend_port") or "").strip()
+    if bp:
+        try:
+            bp_i = int(bp)
+        except (TypeError, ValueError):
+            raise ApiError("panel_backend_port 必须是 1-65535 的整数")
+        if not 1 <= bp_i <= 65535:
+            raise ApiError("panel_backend_port 必须是 1-65535 的整数")
     ppath = str(cfg.get("panel_path") or "").strip().strip("/")
     if ppath and not PANEL_PATH_RE.match(ppath):
         raise ApiError("panel_path 不合法: %s" % ppath)
@@ -1686,7 +1696,13 @@ class PanelHandler(BaseHTTPRequestHandler):
 
     def _cookie_secure(self):
         import ssl
-        return isinstance(getattr(self, "connection", None), ssl.SSLSocket)
+        if isinstance(getattr(self, "connection", None), ssl.SSLSocket):
+            return True
+        # 面板默认在 wgaio-caddy 后面：只有本机回环代理声明 https 才算安全
+        peer = str(getattr(self, "client_address", ("",))[0])
+        if peer in ("127.0.0.1", "::1"):
+            return (self.headers.get("X-Forwarded-Proto") or "").strip().lower() == "https"
+        return False
 
     def _panel_prefix(self):
         raw = str(self._cfg().get("panel_path") or "").strip().strip("/")
@@ -1930,11 +1946,37 @@ class PanelHandler(BaseHTTPRequestHandler):
         self._handle("DELETE")
 
 
-def start_server(cfg):
-    bind = cfg.get("panel_bind") or "127.0.0.1"
+def backend_bind(cfg):
+    """Caddy 前置时 Python 面板只听回环；老配置(没有 panel_backend_port)沿用原行为。"""
+    if str(cfg.get("panel_backend_port") or "").strip():
+        return "127.0.0.1"
+    return str(cfg.get("panel_bind") or "").strip() or "127.0.0.1"
+
+
+def backend_port(cfg):
+    """Python 面板的监听端口。Caddy 前置时是内部端口，否则就是对外的那个端口。
+
+    老配置没有 panel_backend_port 时沿用 panel_port（0 表示临时端口，测试用）。
+    """
+    raw = str(cfg.get("panel_backend_port") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 0
+        if 1 <= value <= 65535:
+            return value
     port = cfg.get("panel_port")
-    port = 8888 if port is None else int(port)
-    httpd = ThreadingHTTPServer((bind, port), PanelHandler)
+    if port is None:
+        return 8888
+    try:
+        return int(port)
+    except (TypeError, ValueError):
+        return 8888
+
+
+def start_server(cfg):
+    httpd = ThreadingHTTPServer((backend_bind(cfg), backend_port(cfg)), PanelHandler)
     httpd.app_cfg = cfg
     return httpd
 

@@ -122,6 +122,20 @@ class AuthTests(HttpTestBase):
         self.assertIn("Max-Age=%d" % core.SESSION_TTL, cookie)
         self.assertNotIn("Secure", cookie)
 
+    def test_cookie_secure_behind_local_proxy(self):
+        """Caddy 前置时连接是明文回环，但 X-Forwarded-Proto: https 要认成安全上下文。"""
+        cookie = self.login()
+        url = "http://127.0.0.1:%d/api/status" % self.port
+        req = urllib.request.Request(url, headers={
+            "Cookie": cookie, "X-Forwarded-Proto": "https"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            hd = dict(resp.headers)
+        self.assertIn("Secure", hd.get("Set-Cookie", ""))
+        # 直连(没有转发头)不算安全上下文
+        st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertNotIn("Secure", hd.get("Set-Cookie", ""))
+
     def test_secure_cookie_only_when_asked(self):
         plain = core.session_cookie("abc", 10, secure=False)
         wrapped = core.session_cookie("abc", 10, secure=True)

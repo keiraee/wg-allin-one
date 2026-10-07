@@ -303,7 +303,7 @@ cmd_status || true
 """
         r = run_bash(script)
         out = r.stdout + r.stderr
-        self.assertIn("面板服务: 未运行", out)
+        self.assertIn("面板后端: 未运行", out)
         self.assertNotIn("面板服务: inactive", out)
 
 

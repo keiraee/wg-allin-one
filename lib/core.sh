@@ -33,6 +33,37 @@ core_py() {
   printf '%s/lib/core.py' "$root"
 }
 
+cfg_get() {  # cfg_get <config.json> <键> [默认值] → stdout
+  local cfg="$1" key="$2" def="${3:-}" py v
+  py="$(find_python)"
+  v="$("$py" -c 'import json,sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    d = {}
+v = d.get(sys.argv[2])
+print("" if v is None else v)' "$cfg" "$key" 2>/dev/null || true)"
+  printf '%s' "${v:-$def}"
+}
+
+tcp_port_busy() {  # 该 TCP 端口是否已被占用
+  local port="$1" hits
+  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
+  case ",${WGAIO_BUSY_TCP:-}," in *",$port,"*) return 0 ;; esac
+  command -v ss >/dev/null 2>&1 || return 1
+  hits="$(ss -H -tln "sport = :$port" 2>/dev/null || true)"
+  [ -n "$hits" ]
+}
+
+udp_port_busy() {  # 该 UDP 端口是否已被占用
+  local port="$1" hits
+  [ "${WGAIO_SKIP_NET_CHECK:-}" = "1" ] && return 1
+  case ",${WGAIO_BUSY_UDP:-}," in *",$port,"*) return 0 ;; esac
+  command -v ss >/dev/null 2>&1 || return 1
+  hits="$(ss -H -uln "sport = :$port" 2>/dev/null || true)"
+  [ -n "$hits" ]
+}
+
 run_core() {
   local py; py="$(find_python)"
   # 核心读 WGAIO_BASE。已显式指定时保留(测试沙箱)，否则跟安装目录走。

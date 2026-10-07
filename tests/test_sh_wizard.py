@@ -119,7 +119,7 @@ class WizardTests(unittest.TestCase):
 
     def test_wizard_public_hostname_is_not_sslip(self):
         r, root = self._run_wizard(
-            "\n" "\n" "vpn.example.com:51820\n" "\n" "\n" "2\n" "\n" "\n")
+            "\n" "\n" "vpn.example.com:51820\n" "\n" "\n" "2\n" "\n" "\n" "\n")
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["tls_cn"], "vpn.example.com")
@@ -190,43 +190,45 @@ class WizardTests(unittest.TestCase):
             "203.0.113.7:51820\n"     # endpoint
             "\n"                      # client_dns 默认
             "\n"                      # lan_cidrs 默认空
-            "2\n"                     # 面板访问: 公网(不再问 HTTPS, 一律申请正式证书)
-            "\n"                      # panel_port 默认
+            "2\n"                     # 面板访问: 公网
+            "\n"                      # 域名默认(sslip.io)
+            "\n"                      # 面板端口默认 8443
             "\n")                     # 流量模式默认
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["panel_bind"], "0.0.0.0")
-        self.assertTrue(cfg["tls_cert"].endswith("/certs/wgaio.crt"), cfg["tls_cert"])
-        self.assertTrue(cfg["tls_key"].endswith("/certs/wgaio.key"), cfg["tls_key"])
+        self.assertEqual(cfg["panel_port"], 8443)
+        self.assertEqual(cfg["panel_backend_port"], 8888)
         self.assertEqual(cfg["tls_mode"], "acme")
+        self.assertEqual(cfg["tls_cn"], "203-0-113-7.sslip.io")
+        self.assertNotIn("tls_cert", cfg)     # 证书交给 Caddy, 不再写证书路径
         self.assertRegex(cfg["panel_path"], r"^wgaio-[0-9a-f]{12}$")
         self.assertIn("/" + cfg["panel_path"] + "/", r.stdout)
-        self.assertNotIn("/opt/wgaio/", cfg["tls_cert"])
         self.assertIn("203-0-113-7.sslip.io", r.stdout)
         self.assertNotIn("HTTPS:", r.stderr)
 
     def test_wizard_public_plain_http_only_via_env(self):
         """向导不再问 HTTPS；确实要纯 HTTP 时用 WGAIO_TLS=http 显式指定。"""
         r, root = self._run_wizard_raw(
-            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "\n" "\n",
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "\n" "\n" "\n",
             "WGAIO_TLS=http")
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["panel_bind"], "0.0.0.0")
-        self.assertEqual(cfg.get("tls_cert", ""), "")
-        self.assertEqual(cfg.get("tls_mode", ""), "")
+        self.assertEqual(cfg["tls_mode"], "off")
+        self.assertNotIn("tls_cert", cfg)
         self.assertRegex(cfg["panel_path"], r"^wgaio-[0-9a-f]{12}$")
         self.assertIn("203-0-113-7.sslip.io", r.stdout)
         self.assertIn("明文传输", r.stderr)
 
     def test_wizard_public_self_signed_via_env(self):
         r, root = self._run_wizard_raw(
-            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "\n" "\n",
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "\n" "\n" "\n",
             "WGAIO_TLS=self")
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
-        self.assertEqual(cfg["tls_mode"], "self")
-        self.assertTrue(cfg["tls_cert"].endswith("/certs/wgaio.crt"))
+        self.assertEqual(cfg["tls_mode"], "internal")   # 老名字 self 映射成 Caddy 的 internal
+        self.assertNotIn("tls_cert", cfg)
         self.assertIn("不受信", r.stderr)
 
     def test_wizard_rejects_bad_tls_env(self):
@@ -236,22 +238,48 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("WGAIO_TLS", r.stderr)
 
-    def test_wizard_public_warns_when_port_80_busy(self):
-        r, root = self._run_wizard_raw(
-            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "\n" "\n",
-            "WGAIO_BUSY_TCP=80")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("80 端口已被占用", r.stderr)
+    def test_wizard_rejects_panel_port_80(self):
+        """80 留给 Caddy 申请证书, 面板不能占。"""
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "80\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("80", r.stderr)
 
-    def test_wizard_ignores_tls_env_when_vpn_only(self):
+    def test_wizard_vpn_only_defaults(self):
+        """仅 VPN 内: 后端只听内网地址, 默认明文 HTTP(和以前一样)。"""
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["panel_bind"], "10.66.66.1")
+        self.assertEqual(cfg["tls_cn"], "10.66.66.1")
+        self.assertEqual(cfg["tls_mode"], "off")
+        self.assertEqual(cfg["panel_port"], 8443)
+        self.assertEqual(cfg["panel_backend_port"], 8888)
+
+    def test_wizard_vpn_only_self_signed_via_env(self):
         r, root = self._run_wizard_raw(
             "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "\n" "\n" "\n",
             "WGAIO_TLS=self")
         self.assertEqual(r.returncode, 0, r.stderr)
         cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
-        self.assertEqual(cfg["panel_bind"], "10.66.66.1")
-        self.assertEqual(cfg.get("tls_cert", ""), "")
-        self.assertIn("已忽略", r.stderr)
+        self.assertEqual(cfg["tls_mode"], "internal")
+        self.assertEqual(cfg["tls_cn"], "10.66.66.1")
+
+    def test_wizard_public_custom_domain(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n"
+            "panel.example.com\n" "\n" "\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["tls_cn"], "panel.example.com")
+        self.assertEqual(cfg["tls_mode"], "acme")
+
+    def test_wizard_public_rejects_bad_domain(self):
+        r, root = self._run_wizard(
+            "\n" "\n" "203.0.113.7:51820\n" "\n" "\n" "2\n" "bad..domain\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("域名", r.stderr)
 
     def test_wizard_eof_rejects_empty_endpoint(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

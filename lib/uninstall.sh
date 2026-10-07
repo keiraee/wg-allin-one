@@ -11,18 +11,21 @@ cmd_uninstall() {
       --keep-clients) keep=1 ;;
     esac
   done
-  log "将清理: wgaio-panel 服务, /usr/local/bin/wgaio, config.json, certs/, snapshots/, .wgaio-track, Let's Encrypt 续期钩子, /etc/sysctl.d/99-wgaio.conf$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
+  log "将清理: wgaio-panel / wgaio-caddy 服务, /etc/wgaio, /var/lib/wgaio-caddy, /var/log/wgaio, /usr/local/bin/wgaio, config.json, certs/, snapshots/, .wgaio-track, Let's Encrypt 续期钩子, /etc/sysctl.d/99-wgaio.conf$([ "$keep" -eq 0 ] && echo ', clients/' || echo '')"
   log "程序文件(lib/ panel/ wgaio.sh bin/)保留, 便于重装; 不会动用户自有的 WireGuard 配置"
   log "本工具生成的 wg0.conf(含 wgaio-managed 标记)会停掉并删除"
   log "用法提示: 可选参数 --keep-clients | --dry-run"
   [ "$dry" -eq 1 ] && { log "(dry-run, 未执行任何删除)"; return 0; }
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now wgaio-panel 2>/dev/null || true
-    rm -f /etc/systemd/system/wgaio-panel.service
+    systemctl disable --now wgaio-caddy 2>/dev/null || true
+    rm -f /etc/systemd/system/wgaio-panel.service /etc/systemd/system/wgaio-caddy.service
     systemctl daemon-reload 2>/dev/null || true
   else
-    rm -f /etc/systemd/system/wgaio-panel.service
+    rm -f /etc/systemd/system/wgaio-panel.service /etc/systemd/system/wgaio-caddy.service
   fi
+  # 只删 wgaio 自己的 Caddy 配置和数据; caddy 二进制留着(同机 HY2 可能还在用)
+  rm -rf /etc/wgaio /var/lib/wgaio-caddy /var/log/wgaio
   rm -f /usr/local/bin/wgaio
   rm -f /etc/letsencrypt/renewal-hooks/deploy/wgaio
   rm -f /etc/sysctl.d/99-wgaio.conf

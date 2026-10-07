@@ -10,16 +10,12 @@ install_deps() {
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl
-    apt-get install -y -qq certbot || warn "没有 certbot 包, 正式证书会改用自签。装上后执行 wgaio cert"
   elif command -v dnf >/dev/null 2>&1; then
     dnf install -y wireguard-tools python3 iptables openssl
-    dnf install -y certbot || warn "没有 certbot 包, 正式证书会改用自签。装上后执行 wgaio cert"
   elif command -v yum >/dev/null 2>&1; then
     yum install -y wireguard-tools python3 iptables openssl
-    yum install -y certbot || warn "没有 certbot 包, 正式证书会改用自签。装上后执行 wgaio cert"
   elif command -v apk >/dev/null 2>&1; then
     apk add --no-cache wireguard-tools python3 iptables openssl
-    apk add --no-cache certbot || warn "没有 certbot 包, 正式证书会改用自签。装上后执行 wgaio cert"
   else
     die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
   fi
@@ -107,125 +103,15 @@ sync_config() {  # sync_config <dest>
   [ -f "$dest/config.json" ] && chmod 600 "$dest/config.json"
 }
 
-issue_self_cert() {  # issue_self_cert <cn> <cert> <key>
-  local cn="$1" cert="$2" key="$3"
-  command -v openssl >/dev/null 2>&1 || return 1
-  mkdir -p "$(dirname "$cert")" || return 1
-  rm -f "$cert" "$key"
-  if ! openssl req -x509 -newkey rsa:2048 -keyout "$key" -out "$cert" -days 3650 -nodes \
-      -subj "/CN=${cn:-wgaio}" \
-      -addext "subjectAltName=DNS:${cn:-wgaio}"; then
-    openssl req -x509 -newkey rsa:2048 -keyout "$key" -out "$cert" -days 3650 -nodes \
-      -subj "/CN=${cn:-wgaio}" || return 1
-  fi
-  chmod 600 "$key" "$cert" || return 1
-}
-
-clear_tls_fields() {  # clear_tls_fields <config.json>
-  "$(find_python)" - "$1" <<'PY'
-import json, sys
-p = sys.argv[1]
-with open(p, encoding="utf-8") as f:
-    d = json.load(f)
-d["tls_cert"] = ""
-d["tls_key"] = ""
-d["tls_mode"] = ""
-with open(p, "w", encoding="utf-8") as f:
-    f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
-PY
-}
-
-install_renew_hook() {
-  local hook="/etc/letsencrypt/renewal-hooks/deploy/wgaio"
-  install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy 2>/dev/null || return 0
-  cat > "$hook" <<'EOF'
-#!/bin/sh
-systemctl try-restart wgaio-panel >/dev/null 2>&1 || true
-EOF
-  chmod 755 "$hook" 2>/dev/null || true
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable --now certbot.timer >/dev/null 2>&1 || true
-  fi
-}
-
-issue_acme() {  # issue_acme <domain> <cert> <key>
-  local domain="$1" cert="$2" key="$3" live
-  command -v certbot >/dev/null 2>&1 || return 1
-  printf '%s' "$domain" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$' || return 1
-  printf '%s' "$domain" | grep -Eq '^[0-9.]+$' && return 1
-  certbot certonly --standalone --non-interactive --agree-tos \
-    --register-unsafely-without-email --keep-until-expiring \
-    --preferred-challenges http --http-01-port 80 \
-    -d "$domain" || return 1
-  live="/etc/letsencrypt/live/${domain}"
-  [ -f "$live/fullchain.pem" ] && [ -f "$live/privkey.pem" ] || return 1
-  mkdir -p "$(dirname "$cert")" || return 1
-  rm -f "$cert" "$key"
-  ln -s "$live/fullchain.pem" "$cert" || return 1
-  ln -s "$live/privkey.pem" "$key" || return 1
-  install_renew_hook
-}
-
-maybe_gen_tls() {  # maybe_gen_tls <config_dir>
-  local cfgdir="$1"
-  local cert key cn mode
-  cert="$(read_cfg "$cfgdir/config.json" tls_cert)"
-  key="$(read_cfg "$cfgdir/config.json" tls_key)"
-  cn="$(read_cfg "$cfgdir/config.json" tls_cn)"
-  mode="$(read_cfg "$cfgdir/config.json" tls_mode)"
-  [ -n "$cert" ] || return 0
-  if [ -f "$cert" ] && [ -f "$key" ] && [ "${WGAIO_FORCE_CERT:-}" != "1" ]; then
-    return 0
-  fi
-  if [ "$mode" = "acme" ]; then
-    log "正在向 Let's Encrypt 申请证书: ${cn} (需要公网能访问本机 TCP 80)"
-    if issue_acme "$cn" "$cert" "$key"; then
-      log "已申请 Let's Encrypt 证书: $cn"
-      return 0
-    fi
-    warn "正式证书没申请到。常见原因: 安全组没放行 TCP 80, 域名没指到这台机器, 或 80 端口已被占用"
-    warn "先用自签证书, 浏览器会提示不受信。放行 80 后执行: wgaio cert"
-  fi
-  if issue_self_cert "$cn" "$cert" "$key"; then
-    log "已生成自签 TLS 证书: $cert"
-    return 0
-  fi
-  warn "证书没有生成, 面板改为纯 HTTP"
-  rm -f "$cert" "$key"
-  clear_tls_fields "$cfgdir/config.json"
-}
-
-cmd_cert() {
-  umask 077
-  local dest="$WGAIO_ROOT" cn cert key
+cmd_cert() {  # 重新挑挑战端口并让 Caddy 重新申请；续期由 Caddy 自己做
+  local dest="$WGAIO_ROOT"
   if [ ! -f "$dest/config.json" ] && [ -n "${WGAIO_DIR:-}" ] && [ -f "${WGAIO_DIR}/config.json" ]; then
     dest="$WGAIO_DIR"
   fi
   [ -f "$dest/config.json" ] || die "还没有配置, 请先安装"
-  cn="$(read_cfg "$dest/config.json" tls_cn)"
-  [ -n "$cn" ] || die "当前不是公网面板, 没有可申请证书的域名"
-  "$(find_python)" - "$dest/config.json" <<'PY'
-import json, sys
-p = sys.argv[1]
-with open(p, encoding="utf-8") as f:
-    d = json.load(f)
-root = p.rsplit("/", 1)[0]
-d["tls_mode"] = "acme"
-d["tls_cn"] = d.get("tls_cn") or ""
-d["tls_cert"] = d.get("tls_cert") or (root + "/certs/wgaio.crt")
-d["tls_key"] = d.get("tls_key") or (root + "/certs/wgaio.key")
-with open(p, "w", encoding="utf-8") as f:
-    f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
-PY
-  cert="$(read_cfg "$dest/config.json" tls_cert)"
-  key="$(read_cfg "$dest/config.json" tls_key)"
-  if [ -n "$cert" ] && [ -e "$cert" ] && [ ! -L "$cert" ]; then
-    rm -f "$cert" "$key"
-  fi
-  WGAIO_FORCE_CERT=1 maybe_gen_tls "$dest"
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl try-restart wgaio-panel >/dev/null 2>&1 || true
-  fi
+  # shellcheck source=lib/caddy.sh
+  . "$ROOT/lib/caddy.sh"
+  install_wgaio_caddy "$dest/config.json"
   log "证书处理完成。完整地址见: wgaio status"
 }
 
@@ -283,7 +169,10 @@ cmd_install() {
   fi
 
   if [ "$dry" -eq 0 ]; then
-    maybe_gen_tls "$dest"
+    # shellcheck source=lib/caddy.sh
+    . "$ROOT/lib/caddy.sh"
+    migrate_config_for_caddy "$dest/config.json"
+    install_wgaio_caddy "$dest/config.json"
   fi
 
   if [ "$dry" -eq 0 ]; then
@@ -298,20 +187,19 @@ EOF
     fi
   fi
 
-  local py wg_port panel_port tls_cert tls_cn tls_mode panel_path scheme gw_ip base
+  local py wg_port panel_port tls_cn tls_mode panel_path scheme gw_ip base
   py="$(find_python)"
   wg_port="$(read_cfg "$dest/config.json" wg_port)"
   panel_port="$(read_cfg "$dest/config.json" panel_port)"
-  tls_cert="$(read_cfg "$dest/config.json" tls_cert)"
   tls_cn="$(read_cfg "$dest/config.json" tls_cn)"
   tls_mode="$(read_cfg "$dest/config.json" tls_mode)"
   panel_path="$(read_cfg "$dest/config.json" panel_path)"
   gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$(read_cfg "$dest/config.json" vpn_cidr)")"
 
-  if [ -n "$tls_cert" ] && [ -f "$tls_cert" ]; then
-    scheme="https"
-  else
+  if [ "$tls_mode" = "off" ]; then
     scheme="http"
+  else
+    scheme="https"
   fi
   if [ -n "$tls_cn" ]; then
     base="${scheme}://${tls_cn}:${panel_port}"
@@ -323,7 +211,7 @@ EOF
   log "====================================================="
   log " 重要: 请到云控制台安全组放行 UDP ${wg_port} 端口!"
   if [ "$tls_mode" = "acme" ]; then
-    log " 申请正式证书还要放行 TCP 80, 且 80 不能被别的程序占用"
+    log " Caddy 会自动申请正式证书: 80(HTTP-01) 或 443(TLS-ALPN-01) 要有一个空闲"
   fi
   if [ -n "$tls_cn" ]; then
     log " 公网打开面板还要放行 TCP ${panel_port}"
