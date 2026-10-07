@@ -1874,7 +1874,11 @@ class PanelHandler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "peers"] and parts[3] == "qr" \
                 and method == "GET":
             import qr
-            svg = qr.qr_svg(show_conf(parts[2]))
+            try:
+                svg = qr.qr_svg(show_conf(parts[2]))
+            except ValueError as e:
+                # 内网路由段很多时配置会超出二维码容量，给个能看懂的 400 而不是 500
+                raise ApiError(str(e) or "配置太长，生成不了二维码", 400)
             self._send(200, svg, "image/svg+xml")
             return
         if len(parts) == 4 and parts[:2] == ["api", "peers"] and method == "POST" \
