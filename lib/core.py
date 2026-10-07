@@ -752,8 +752,9 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
 
         if routes is not None:
             extra_routes = normalize_routes(routes)
-            base = peer["allowed_ips"][0]
-            peer["allowed_ips"] = [base] + extra_routes
+            # 手工写进 wg0.conf 的对等端可能一条 AllowedIPs 都没有，不能直接取下标。
+            base = peer["allowed_ips"][0] if peer["allowed_ips"] else None
+            peer["allowed_ips"] = ([base] if base else []) + extra_routes
             meta["routes"] = extra_routes
 
         if keepalive is not None:
@@ -773,7 +774,9 @@ def update_peer(name, new_name=None, ip=None, dns=None, keepalive=None,
         meta["disabled"] = False
 
         write_conf(iface_lines, peers)
-        wg_set_peer(peer["pubkey"], allowed_ips=", ".join(peer["allowed_ips"]),
+        # 没有 allowed-ips 时别给 wg 传空串，那是非法参数；不传就是只改保活。
+        allowed = ", ".join(peer["allowed_ips"])
+        wg_set_peer(peer["pubkey"], allowed_ips=(allowed or None),
                     keepalive=peer.get("keepalive") or 0)
         if priv:
             cfg_run = dict(cfg)

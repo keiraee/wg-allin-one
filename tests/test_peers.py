@@ -140,6 +140,18 @@ class DelEditTests(PeerBase):
         _, peers = core.parse_conf()
         self.assertEqual(peers[0]["allowed_ips"], ["10.66.66.2/32"])
 
+    def test_edit_routes_on_peer_without_allowed_ips(self, m_gen, m_pub, m_set):
+        """手工对等端可能一条 AllowedIPs 都没有；改路由不能 500(回归 IndexError)。"""
+        core.WG_CONF.write_text(
+            "[Interface]\nPrivateKey = S\n\n[Peer]\n# name: hand\nPublicKey = H\n",
+            encoding="utf-8")
+        meta = core.update_peer("hand", routes="192.168.5.0/24", cfg=CFG)
+        self.assertEqual(meta["routes"], ["192.168.5.0/24"])
+        self.assertEqual(core.parse_conf()[1][0]["allowed_ips"], ["192.168.5.0/24"])
+        m_set.assert_called_once()
+        # 只剩路由时也照样下发给内核，而不是传空串
+        self.assertEqual(m_set.call_args.kwargs["allowed_ips"], "192.168.5.0/24")
+
 
 @mock.patch("core.wg_set_peer")
 @mock.patch("core.server_pubkey", return_value="SPUB")
