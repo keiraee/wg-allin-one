@@ -8,6 +8,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def bash_path(p):
+    text = Path(p).as_posix()
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        return "/mnt/" + text[0].lower() + text[2:]
+    return text
+
+
 def make_sandbox(tmp):
     root = Path(tmp)
     (root / "lib").mkdir()
@@ -281,6 +288,47 @@ class ShortCommandTests(unittest.TestCase):
         self.assertIn("Welcome", r.stdout)
         self.assertIn("@keiraee", r.stdout)
         self.assertIn("github.com/keiraee/wg-allin-one", r.stdout)
+
+    def test_read_cfg_reports_broken_json_in_plain_words(self):
+        root, _ = self._sandbox()
+        (root / "config.json").write_text("NOT_JSON_AT_ALL", encoding="utf-8")
+        (root / "run.sh").write_text(
+            "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"
+            + 'read_cfg "./config.json" wg_port' + "\n",
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertNotEqual(r.returncode, 0)
+        # 不能抛 traceback: 用户看不懂, 也不知道下一步该干什么
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertNotIn("JSONDecodeError", r.stderr)
+        self.assertIn("不是合法 JSON", r.stderr)
+
+    def test_read_cfg_reports_missing_file(self):
+        root, _ = self._sandbox()
+        (root / "run.sh").write_text(
+            "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"
+            + 'read_cfg "./nope.json" wg_port' + "\n",
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("找不到配置", r.stderr)
+
+    def test_read_cfg_still_works_on_good_config(self):
+        root, _ = self._sandbox()
+        (root / "config.json").write_text(json.dumps({"wg_port": 51820}), encoding="utf-8")
+        (root / "run.sh").write_text(
+            "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"
+            + 'echo "port=$(read_cfg "./config.json" wg_port)"' + "\n"
+            + 'echo "empty=[$(read_cfg "./config.json" missing)]"' + "\n",
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("port=51820", r.stdout)
+        self.assertIn("empty=[]", r.stdout)
 
 
 if __name__ == "__main__":

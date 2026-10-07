@@ -189,7 +189,18 @@ cmd_cert() {  # 重新挑挑战端口并让 Caddy 重新申请；续期由 Caddy
 read_cfg() {  # read_cfg <config.json 路径> <键>
   local cfg="$1" key="$2" py
   py="$(find_python)"
-  "$py" -c 'import json,sys;d=json.load(open(sys.argv[1],encoding="utf-8"));print(d.get(sys.argv[2],""))' "$cfg" "$key"
+  # 配置坏了要给一句人话, 不要抛 traceback: 安装/状态输出里混进 Python 栈,
+  # 用户看不懂, 而且 set -e 下还会在半路把整个流程打断。
+  "$py" -c 'import json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except FileNotFoundError:
+    sys.stderr.write("[wgaio] 错误: 找不到配置 %s\n" % sys.argv[1])
+    sys.exit(3)
+except (json.JSONDecodeError, UnicodeError, OSError):
+    sys.stderr.write("[wgaio] 错误: %s 不是合法 JSON, 请备份后修正或从备份恢复\n" % sys.argv[1])
+    sys.exit(3)
+print(d.get(sys.argv[2], ""))' "$cfg" "$key"
 }
 
 cmd_install() {

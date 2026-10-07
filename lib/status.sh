@@ -29,7 +29,11 @@ cmd_status() {
     local py out url
     py="$(find_python)"
     out="$("$py" -c 'import json,os,sys
-d=json.load(open(sys.argv[1],encoding="utf-8"))
+try:
+    d=json.load(open(sys.argv[1],encoding="utf-8"))
+except (json.JSONDecodeError, UnicodeError, OSError):
+    sys.stderr.write("[wgaio] 错误: config.json 不是合法 JSON, 请备份后修正或从备份恢复\n")
+    sys.exit(3)
 mode=str(d.get("tls_mode") or "").strip()
 scheme="http" if mode == "off" else "https"
 bind=str(d.get("panel_bind") or "")

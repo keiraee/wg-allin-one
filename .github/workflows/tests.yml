@@ -7,4 +7,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      # 语法错误在 CI 就拦住: 单个脚本写坏不该等用户 upgrade 之后才发现
+      - name: shell 语法检查
+        run: |
+          for f in wgaio.sh bin/wgaio lib/*.sh; do
+            bash -n "$f" || { echo "语法错误: $f"; exit 1; }
+          done
       - run: python -m unittest discover tests -v
