@@ -128,6 +128,13 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertEqual(got["panel_port"], 8443)
         self.assertNotIn("Caddy 前置", r.stdout)
 
+    def test_install_restarts_backend_after_migration(self):
+        """迁移过配置后必须重启后端, 否则老进程还绑着 0.0.0.0:老端口(明文对外)。"""
+        src = (ROOT / "lib" / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("systemctl try-restart wgaio-panel", src)
+        self.assertLess(src.index("install_wgaio_caddy"),
+                        src.index("systemctl try-restart wgaio-panel"))
+
     @unittest.skipUnless(CADDY, "需要 caddy 才能校验(设 WGAIO_CADDY_BIN)")
     def test_generated_files_pass_real_caddy(self):
         for mode, challenge in (("acme", "http"), ("acme", "tls-alpn"),

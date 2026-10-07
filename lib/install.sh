@@ -185,6 +185,10 @@ EOF
       . "$ROOT/lib/panel.sh"
       install_panel_unit "$dest"
     fi
+    # 迁移过配置时必须重启后端: 老进程还绑着 0.0.0.0:老端口, 不重启就还是明文对外
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl try-restart wgaio-panel 2>/dev/null || true
+    fi
   fi
 
   local py wg_port panel_port tls_cn tls_mode panel_path scheme gw_ip base
