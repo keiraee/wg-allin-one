@@ -185,6 +185,12 @@ render_caddyfile() {  # render_caddyfile <域名> <面板端口> <后端端口> 
   {
     printf '{\n'
     printf '\tadmin off\n'
+    # 纯 IP 站点: 客户端(浏览器/curl)对 IP 不发 SNI, 不指定默认证书会直接 internal error
+    if [ "$mode" != "off" ]; then
+      case "$domain" in
+        [0-9]*.[0-9]*.[0-9]*.[0-9]*) printf '\tdefault_sni %s\n' "$domain" ;;
+      esac
+    fi
     # 面板不在 443, 不需要 HTTP->HTTPS 跳转, 也就不会去占 80
     printf '\tauto_https disable_redirects\n'
     if [ "$mode" != "off" ]; then

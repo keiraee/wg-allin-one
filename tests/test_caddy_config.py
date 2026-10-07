@@ -132,8 +132,9 @@ class CaddyConfigTests(unittest.TestCase):
         """迁移过配置后必须重启后端, 否则老进程还绑着 0.0.0.0:老端口(明文对外)。"""
         src = (ROOT / "lib" / "install.sh").read_text(encoding="utf-8")
         self.assertIn("systemctl try-restart wgaio-panel", src)
-        self.assertLess(src.index("install_wgaio_caddy"),
-                        src.index("systemctl try-restart wgaio-panel"))
+        body = src.split("cmd_install()", 1)[1]      # 只看安装流程里的顺序
+        self.assertLess(body.index("install_wgaio_caddy"),
+                        body.index("systemctl try-restart wgaio-panel"))
 
     def test_falls_back_to_self_signed_without_caddy(self):
         """Caddy 下不下来时不能让安装死掉: 退回 openssl 自签 + 面板直接 HTTPS。"""

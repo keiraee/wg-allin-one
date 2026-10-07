@@ -2025,9 +2025,13 @@ def serve(cfg=None):
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
     scheme = "https" if (tls_cert and tls_key and Path(tls_cert).is_file()) else "http"
     host, port = httpd.server_address[0], httpd.server_address[1]
-    print("wgaio 面板已启动: %s (令牌登录)" % panel_url(cfg, scheme, host, port), flush=True)
-    # 绑公网又没有可用证书 = 明文面板，不能只在启动日志里一笔带过
-    if scheme == "http" and str(cfg.get("panel_bind") or "").strip() == "0.0.0.0":
+    # Caddy 前置时对外端口是 panel_port，这里只监听回环，别把后端端口当成面板地址打出去
+    behind_proxy = bool(str(cfg.get("panel_backend_port") or "").strip())
+    pub_port = (cfg.get("panel_port") or port) if behind_proxy else port
+    print("wgaio 面板已启动: %s (令牌登录)" % panel_url(cfg, scheme, host, pub_port), flush=True)
+    # 绑公网又没有可用证书 = 明文面板，不能只在启动日志里一笔带过。
+    # 但 Caddy 前置时回环这一段本来就是明文，公网那段是 Caddy 的 TLS，不该报警。
+    if not behind_proxy and scheme == "http" and str(cfg.get("panel_bind") or "").strip() == "0.0.0.0":
         print("[wgaio] 警告: 面板绑定 0.0.0.0 但没有可用证书, 现在是明文 HTTP, "
               "令牌会以明文经过网络。放行 TCP 80 后执行 wgaio cert, "
               "或把 config.json 的 panel_bind 改回内网地址。", file=sys.stderr, flush=True)

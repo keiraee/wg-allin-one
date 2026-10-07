@@ -138,6 +138,32 @@ sync_config() {  # sync_config <dest>
   [ -f "$dest/config.json" ] && chmod 600 "$dest/config.json"
 }
 
+cmd_token() {  # 忘记面板令牌时重置一个(只显示一次, 旧令牌立刻失效)
+  local dest="$WGAIO_ROOT" token hash py
+  if [ ! -f "$dest/config.json" ] && [ -n "${WGAIO_DIR:-}" ] && [ -f "${WGAIO_DIR}/config.json" ]; then
+    dest="$WGAIO_DIR"
+  fi
+  [ -f "$dest/config.json" ] || die "还没有配置, 请先安装"
+  py="$(find_python)"
+  token="wgaio-$("$py" -c 'import secrets; print(secrets.token_hex(8))')"
+  hash="$(printf '%s' "$token" | "$py" -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+  "$py" - "$dest/config.json" "$hash" <<'PY'
+import json, sys
+p, h = sys.argv[1], sys.argv[2]
+with open(p, encoding="utf-8") as f:
+    d = json.load(f)
+d["panel_token_hash"] = h
+with open(p, "w", encoding="utf-8") as f:
+    f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+PY
+  chmod 600 "$dest/config.json" 2>/dev/null || true
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl try-restart wgaio-panel >/dev/null 2>&1 || true
+  fi
+  printf '\n===== 新的面板登录令牌(只显示这一次, 请立即保存) =====\n%s\n=====================================================\n' "$token"
+  log "旧令牌已失效"
+}
+
 cmd_cert() {  # 重新挑挑战端口并让 Caddy 重新申请；续期由 Caddy 自己做
   local dest="$WGAIO_ROOT"
   if [ ! -f "$dest/config.json" ] && [ -n "${WGAIO_DIR:-}" ] && [ -f "${WGAIO_DIR}/config.json" ]; then
