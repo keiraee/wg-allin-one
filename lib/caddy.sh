@@ -189,23 +189,37 @@ fallback_self_signed() {  # 没有 Caddy 时的兜底: openssl 自签 + Python �
            -subj "/CN=${domain}" 2>/dev/null || true
     chmod 600 "$key" "$cert" 2>/dev/null || true
   fi
-  "$(find_python)" - "$cfg" "$cert" "$key" "$port" <<'PY'
+  # 只有证书和私钥都真的生成出来了才写进配置。openssl 缺失或失败时不能把
+  # 不存在的路径写进去——否则面板拿着空路径启动, 静默退回明文还看不出原因。
+  local self_ok=0
+  if [ -s "$cert" ] && [ -s "$key" ]; then self_ok=1; fi
+  "$(find_python)" - "$cfg" "$cert" "$key" "$port" "$self_ok" <<'PY'
 import json, sys
-p, cert, key, port = sys.argv[1:5]
+p, cert, key, port, ok = sys.argv[1:6]
 with open(p, encoding="utf-8") as f:
     d = json.load(f)
 # 清掉内部端口: Python 面板直接对外监听, 不再经 Caddy
 d["panel_backend_port"] = ""
 d["panel_port"] = int(port)
-if cert:
+if ok == "1":
     d["tls_cert"] = cert
     d["tls_key"] = key
     d["tls_mode"] = "self"
+else:
+    # 自签没做成, 只能明文。写空并标 off, 让状态显示和实际情况一致。
+    d["tls_cert"] = ""
+    d["tls_key"] = ""
+    d["tls_mode"] = "off"
 with open(p, "w", encoding="utf-8") as f:
     f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
 PY
   chmod 600 "$cfg" 2>/dev/null || true
-  log "面板已改为直接提供 HTTPS(自签): https://${domain}:${port}/"
+  if [ "$self_ok" -eq 1 ]; then
+    log "面板已改为直接提供 HTTPS(自签): https://${domain}:${port}/"
+  else
+    warn "自签证书没能生成(缺少 openssl 或生成失败), 面板暂时是明文 HTTP: http://${domain}:${port}/"
+    warn "公网环境下令牌会明文传输。请安装 openssl, 然后执行 wgaio cert 重新处理证书"
+  fi
   warn "等能连上 GitHub 了, 重新执行 wgaio install 会换成 Caddy 自动申请正式证书"
 }
 

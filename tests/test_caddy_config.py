@@ -17,6 +17,17 @@ CADDY = os.environ.get("WGAIO_CADDY_BIN") or shutil.which("caddy")
 HEAD = 'ROOT="."; . "$ROOT/lib/core.sh"; . "$ROOT/lib/caddy.sh"; '
 
 
+def bash_path(p):
+    """Windows 盘符路径转成 WSL/Linux bash 能认的形式(盘符 -> /mnt/盘符)。
+
+    直接传 H:/... 的话 WSL 的 bash 按 Linux 路径解析, 会找不到文件。
+    """
+    text = Path(p).as_posix()
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        return "/mnt/" + text[0].lower() + text[2:]
+    return text
+
+
 def make_sandbox(tmp):
     root = Path(tmp)
     (root / "lib").mkdir()
@@ -143,6 +154,74 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertNotIn('die "Caddy 不可用', src)
         self.assertIn('d["tls_mode"] = "self"', src)
 
+
+    def test_self_signed_fallback_needs_openssl(self):
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        body = src.split("fallback_self_signed()", 1)[1]
+        body = body.split("\npick_challenge()", 1)[0]
+        self.assertIn('[ -s "$cert" ] && [ -s "$key" ]', body)
+        self.assertIn("self_ok=1", body)
+        self.assertIn('if ok == "1":', body)
+        self.assertIn('d["tls_mode"] = "off"', body)
+
+    def _fallback_cfg(self, root):
+        (root / "config.json").write_text(
+            json.dumps({"panel_port": 8443, "tls_cn": "a.example.com",
+                        "tls_mode": "acme"}), encoding="utf-8")
+        return (
+            'ROOT="%(root)s"; export WGAIO_ROOT="%(root)s"; '
+            '. "$ROOT/lib/caddy.sh"; '
+            'fallback_self_signed "%(cfg)s" a.example.com 8443'
+        ) % {"root": bash_path(ROOT), "cfg": "./config.json"}
+
+    def test_self_signed_fallback_without_openssl_degrades_to_http(self):
+        root = self._sandbox()
+        script = self._fallback_cfg(root)
+        fake = root / "fakebin"
+        fake.mkdir()
+        linked = 0
+        for c in ("bash", "python3", "python", "awk", "sed", "cat",
+                  "chmod", "mkdir", "dirname", "rm", "ls"):
+            found = shutil.which(c)
+            if not found:
+                continue
+            try:
+                os.symlink(found, fake / c)
+                linked += 1
+            except OSError:
+                pass
+        def usable(name):
+            try:
+                return (fake / name).exists()
+            except OSError:
+                return False          # Windows 无 symlink 权限时断链会抛错
+
+        if linked == 0 or not (usable("python3") or usable("python")):
+            self.skipTest("无法构造最小 PATH(需要 bash 与 python 的软链权限)")
+        run_body = "\n".join(["PATH=" + bash_path(fake), "export PATH", script])
+        with open(str(root / "run.sh"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(run_body + "\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root), env=dict(os.environ),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["tls_mode"], "off")
+        self.assertEqual(got["tls_cert"], "")
+        self.assertEqual(got["tls_key"], "")
+        self.assertIn("明文", r.stdout + r.stderr)
+
+    def test_self_signed_fallback_with_openssl_writes_cert(self):
+        if not shutil.which("openssl"):
+            self.skipTest("需要 openssl")
+        root = self._sandbox()
+        script = self._fallback_cfg(root)
+        r, _ = self._run(script, root=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["tls_mode"], "self")
+        self.assertTrue(Path(got["tls_cert"]).is_file(),
+                        "写进配置的证书必须真实存在: %s" % got["tls_cert"])
+        self.assertTrue(Path(got["tls_key"]).is_file())
     @unittest.skipUnless(CADDY, "需要 caddy 才能校验(设 WGAIO_CADDY_BIN)")
     def test_generated_files_pass_real_caddy(self):
         for mode, challenge in (("acme", "http"), ("acme", "tls-alpn"),
