@@ -2,7 +2,7 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
-当前正式版是 [v0.3.4](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.4)。
+当前正式版是 [v0.3.5](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.5)。
 
 更新有两条轨道：
 
@@ -14,7 +14,7 @@
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.4/wgaio.sh -o wgaio.sh
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.5/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -45,10 +45,10 @@ sudo bash wgaio.sh install
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.4`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.5`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.4`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.5`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
@@ -94,7 +94,7 @@ WGAIO_NO_MIRROR=1 wgaio upgrade
 第一次装如果 `raw.githubusercontent.com` 打不开，可以借加速站取脚本：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.4/wgaio.sh -o wgaio.sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.5/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 

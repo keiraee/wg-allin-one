@@ -44,14 +44,29 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   asset="caddy_${ver}_linux_${arch}.tar.gz"
   base="https://github.com/caddyserver/caddy/releases/download/v${ver}"
   tmp="$(mktemp -d)"
-  # github_curl 会先直连、失败再依次走公共加速站
-  if ! github_curl "${base}/${asset}" -o "${tmp}/${asset}" \
-     || ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
+  # Caddy 包 18MB 上下, 国内直连和镜像都可能很慢: 断点续传 + 放宽超时(900s),
+  # 换镜像也能接着下(内容一样), 下完仍然按官方 checksums 校验。
+  log "下载 Caddy(约 18MB, 国内可能比较慢, 断了会接着下)..."
+  local u got=0
+  while IFS= read -r u; do
+    [ "$u" = "${base}/${asset}" ] || warn "直连失败, 改走镜像: $u"
+    if curl -fL -C - --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 \
+        -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+        "$u" -o "${tmp}/${asset}"; then
+      got=1
+      break
+    fi
+  done < <(github_urls "${base}/${asset}")
+  if [ "$got" -ne 1 ]; then
     rm -rf "$tmp"; warn "下载 Caddy 失败。${MIRROR_HINT}"; return 1
+  fi
+  if ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
+    rm -rf "$tmp"; warn "下载 Caddy 校验文件失败。${MIRROR_HINT}"; return 1
   fi
   expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "${tmp}/sums.txt")"
   actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    # 删掉半成品, 免得下次续传把坏文件接着拼
     rm -rf "$tmp"; warn "Caddy 校验失败(镜像可能被篡改或缓存坏了), 换一个镜像再试: ${MIRROR_HINT}"; return 1
   fi
   tar xzf "${tmp}/${asset}" -C "$tmp" caddy || { rm -rf "$tmp"; return 1; }

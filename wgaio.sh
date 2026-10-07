@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.4"
+VERSION="0.3.5"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---

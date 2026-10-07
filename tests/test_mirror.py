@@ -66,6 +66,12 @@ class MirrorTests(unittest.TestCase):
         src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
         self.assertIn("github_curl", src)
 
+    def test_caddy_binary_uses_resume_and_long_timeout(self):
+        """Caddy 包 18MB, 国内慢: 必须断点续传 + 放宽超时, 否则永远下不完。"""
+        src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
+        self.assertIn("-C -", src)
+        self.assertIn("--max-time 900", src)
+
     def test_ip_detection_has_china_reachable_sources(self):
         src = (ROOT / "lib" / "wizard.sh").read_text(encoding="utf-8")
         for host in ("ip.sb", "myip.ipip.net", "ipinfo.io"):
