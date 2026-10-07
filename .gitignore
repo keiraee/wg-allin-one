@@ -32,3 +32,8 @@ _t.service
 .wgaio-menu-reload
 .wgaio-uninstalled
 .update-check.json
+
+# 自检临时文件
+_cm
+.commit_tmp
+*.commit_tmp

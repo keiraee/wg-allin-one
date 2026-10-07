@@ -219,9 +219,12 @@ class CaddyConfigTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         got = json.loads((root / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(got["tls_mode"], "self")
-        self.assertTrue(Path(got["tls_cert"]).is_file(),
+        # 配置里写的是相对沙箱的路径, 断言要按沙箱目录解析, 不能按仓库根
+        self.assertTrue((root / got["tls_cert"]).is_file(),
                         "写进配置的证书必须真实存在: %s" % got["tls_cert"])
-        self.assertTrue(Path(got["tls_key"]).is_file())
+        self.assertTrue((root / got["tls_key"]).is_file(),
+                        "写进配置的私钥必须真实存在: %s" % got["tls_key"])
+
     @unittest.skipUnless(CADDY, "需要 caddy 才能校验(设 WGAIO_CADDY_BIN)")
     def test_generated_files_pass_real_caddy(self):
         for mode, challenge in (("acme", "http"), ("acme", "tls-alpn"),
