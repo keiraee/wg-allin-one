@@ -71,6 +71,9 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   fi
   tar xzf "${tmp}/${asset}" -C "$tmp" caddy || { rm -rf "$tmp"; return 1; }
   install -m 0755 "${tmp}/caddy" /usr/local/bin/caddy || { rm -rf "$tmp"; return 1; }
+  # 留个标记: 卸载时只有确认这份 caddy 是我们装的才删(同机 HY2 可能共用)
+  mkdir -p "$WGAIO_CADDY_DATA" 2>/dev/null || true
+  : > "$WGAIO_CADDY_DATA/.wgaio-installed-caddy" 2>/dev/null || true
   rm -rf "$tmp"
   caddy_bin
 }
