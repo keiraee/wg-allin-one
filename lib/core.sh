@@ -154,21 +154,21 @@ github_curl() {  # github_curl <url> <curl 参数...>; 直连失败自动换镜�
   return 1
 }
 
-# 把 HTTP 状态留在当前 shell。不要放进 ${D}()，否则状态码会丢。
+# 把 HTTP 状态留在当前 shell。不要放进 $()，否则状态码会丢。
 github_get() {  # github_get <url> <输出文件>; 结果放 GITHUB_HTTP
   local url="$1" out="$2" u code first=""
   command -v curl >/dev/null 2>&1 || die "需要 curl 才能下载"
   while IFS= read -r u; do
     [ "$u" = "$url" ] || warn "直连失败, 改走镜像: $u"
-    code="${D}(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
       -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
       -o "$out" -w '%{http_code}' "$u" || true)"
-    code="${D}{code:-000}"
+    code="${code:-000}"
     if [ "$code" = "200" ]; then GITHUB_HTTP=200; return 0; fi
     # 000 = 连不上, 换下一个; 有明确应答(404/403 等)就记下来, 别被后面的 000 盖掉
     if [ "$code" != "000" ] && [ -z "$first" ]; then first="$code"; fi
   done < <(github_urls "$url")
-  GITHUB_HTTP="${D}{first:-000}"
+  GITHUB_HTTP="${first:-000}"
 }
 
 run_core() {

@@ -77,6 +77,28 @@ class MirrorTests(unittest.TestCase):
         for host in ("ip.sb", "myip.ipip.net", "ipinfo.io"):
             self.assertIn(host, src)
 
+    def test_no_placeholder_left_in_shipped_files(self):
+        """发版文件里不能留下模板占位符(set -u 下会变成 unbound variable)。"""
+        bad = "$" + "{D}"
+        names = ("wgaio.sh", "bin/wgaio", "lib/core.sh", "lib/install.sh", "lib/upgrade.sh",
+                 "lib/wizard.sh", "lib/caddy.sh", "lib/mirror.sh", "lib/panel.sh",
+                 "lib/status.sh", "lib/uninstall.sh", "lib/menu.sh", "lib/backup.sh")
+        for rel in names:
+            src = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertNotIn(bad, src, rel)
+            self.assertNotIn("@@{", src, rel)
+
+    def test_github_get_runs_under_set_u(self):
+        """github_get 曾经留了个占位符, set -u 下直接 unbound variable, 升级全废。"""
+        script = ("set -u\n"
+                  'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\n'
+                  "WGAIO_NO_MIRROR=1\n"
+                  'github_get "http://127.0.0.1:9/nope" "$PWD/out.json" || true\n'
+                  'echo "HTTP=$GITHUB_HTTP"\n')
+        r = self._run(script)
+        self.assertNotIn("unbound variable", r.stderr)
+        self.assertIn("HTTP=", r.stdout)
+
     def test_failure_messages_mention_mirror(self):
         # MIRROR_HINT 定义在 core.sh; 引导脚本自带一份; caddy.sh 复用 ${MIRROR_HINT}
         for rel in ("wgaio.sh", "lib/core.sh"):
