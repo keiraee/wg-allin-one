@@ -290,6 +290,11 @@ def _apply_mask(mod, func, mask):
     return out
 
 
+def _all_light(line, start, end):
+    """start/end 允许越界：符号外的静区算浅色，越界的一侧按空区间处理。"""
+    return all(not x for x in line[max(0, start):min(len(line), end)])
+
+
 def _penalty(mod):
     n = len(mod)
     runs = [0] * (n + 1)
@@ -325,60 +330,20 @@ def _penalty(mod):
                 next(cols, None)
             elif top_right == mod[r][c] == mod[r + 1][c]:
                 pen += 3
-    for row in mod:
-        cols = iter(range(n - 10))
-        for c in cols:
-            if (
-                not row[c + 1]
-                and row[c + 4]
-                and not row[c + 5]
-                and row[c + 6]
-                and not row[c + 9]
-                and (
-                    row[c]
-                    and row[c + 2]
-                    and row[c + 3]
-                    and not row[c + 7]
-                    and not row[c + 8]
-                    and not row[c + 10]
-                    or not row[c]
-                    and not row[c + 2]
-                    and not row[c + 3]
-                    and row[c + 7]
-                    and row[c + 8]
-                    and row[c + 10]
-                )
-            ):
-                pen += 40
-            if row[c + 10]:
-                next(cols, None)
-    for c in range(n):
-        rows = iter(range(n - 10))
-        for r in rows:
-            if (
-                not mod[r + 1][c]
-                and mod[r + 4][c]
-                and not mod[r + 5][c]
-                and mod[r + 6][c]
-                and not mod[r + 9][c]
-                and (
-                    mod[r][c]
-                    and mod[r + 2][c]
-                    and mod[r + 3][c]
-                    and not mod[r + 7][c]
-                    and not mod[r + 8][c]
-                    and not mod[r + 10][c]
-                    or not mod[r][c]
-                    and not mod[r + 2][c]
-                    and not mod[r + 3][c]
-                    and mod[r + 7][c]
-                    and mod[r + 8][c]
-                    and mod[r + 10][c]
-                )
-            ):
-                pen += 40
-            if mod[r + 10][c]:
-                next(rows, None)
+    # N3: 1:1:3:1:1 核心，前或后 4 个模块是浅色。同一个核心只算一次；
+    # 符号边缘的 4 个浅色由静区补足（ISO/IEC 18004 7.8.3.1）。
+    for line in list(mod) + [[mod[r][c] for r in range(n)] for c in range(n)]:
+        i = 0
+        while i <= n - 7:
+            if (line[i] and not line[i + 1] and line[i + 2] and line[i + 3]
+                    and line[i + 4] and not line[i + 5] and line[i + 6]):
+                if _all_light(line, i - 4, i) or _all_light(line, i + 7, i + 11):
+                    pen += 40
+                    i += 7      # 命中后跳过整个核心，重叠的核心不重复计分
+                else:
+                    i += 4
+            else:
+                i += 1
     dark = sum(cell for row in mod for cell in row)
     percent = dark / (n * n)
     pen += int(abs(percent * 100 - 50) / 5) * 10
