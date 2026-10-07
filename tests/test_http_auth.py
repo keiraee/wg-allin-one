@@ -144,6 +144,23 @@ class AuthTests(HttpTestBase):
         st, hd, body = self.req("GET", "/api/status", cookie=cookie)
         self.assertEqual(st, 401)
 
+    def test_logout_without_json_body_revokes_session(self):
+        """退出登录不该要求 JSON 请求体：没有 Content-Type 时也要撤销会话。"""
+        cookie = self.login()
+        st, hd, body = self.req("POST", "/api/logout", cookie=cookie)
+        self.assertEqual(st, 200, body)
+        self.assertIn("Max-Age=0", hd.get("Set-Cookie", ""))
+        st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 401)
+
+    def test_logout_tolerates_non_json_body(self):
+        cookie = self.login()
+        st, hd, body = self.req("POST", "/api/logout", {"bye": True},
+                                cookie=cookie, ctype="text/plain")
+        self.assertEqual(st, 200, body)
+        st, hd, body = self.req("GET", "/api/status", cookie=cookie)
+        self.assertEqual(st, 401)
+
     def test_unexpected_error_logged_not_returned(self):
         cookie = self.login()
         buf = io.StringIO()

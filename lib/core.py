@@ -1822,8 +1822,14 @@ class PanelHandler(BaseHTTPRequestHandler):
     def _api(self, method, parts, u):
         cfg = self._cfg()
         if parts == ["api", "logout"] and method == "POST":
-            if self.headers.get("Content-Length"):
-                self._body()
+            # 退出登录不该卡在请求体上：原来只要有 Content-Length(哪怕是 0)就调
+            # _body()，客户端不带 application/json 时会先 415，会话反而没撤销。
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                n = 0
+            if n > 0:
+                self.rfile.read(min(n, MAX_BODY))
             s = self._session()
             with _sessions_lock:
                 if s:
