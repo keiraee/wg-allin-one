@@ -37,6 +37,10 @@ sudo bash wgaio.sh install
 
 装好后在终端里直接执行 `wgaio`（不要带子命令）进入菜单，里面可以升级、管设备、开关面板、看日志、回滚和卸载。`wgaio --help` 仍是命令说明。
 
+安装会顺带写一个短命令 `wg`：敲 `wg` 直接进菜单，`wg user add …`、`wg upgrade` 这些也和 `wgaio` 等价；
+`wg show`、`wg set`、`wg genkey` 等 WireGuard 自己的子命令仍然原样转交给真正的 `/usr/bin/wg`，不会抢。
+（`/usr/local/bin/wg` 已经存在且不是本工具写的时，安装会跳过短命令，只保留 `wgaio`。）
+
 ## 已经装好了，怎么更新
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。

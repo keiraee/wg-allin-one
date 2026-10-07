@@ -214,5 +214,67 @@ class InstallTests(unittest.TestCase):
             tmpdir.rmdir()
 
 
+class ShortCommandTests(unittest.TestCase):
+    """短命令 wg: WireGuard 自己的子命令转交真 wg, 其余(含不带参数)交给 wgaio。"""
+
+    def _sandbox(self):
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "lib").mkdir()
+        os.symlink(ROOT / "lib" / "core.sh", root / "lib" / "core.sh")
+        (root / "wgaio.sh").write_text(
+            '#!/usr/bin/env bash\nprintf "wgaio-called %s\\n" "$*"\n',
+            encoding="utf-8", newline="\n")
+        real = root / "real-wg"
+        real.write_text('#!/usr/bin/env bash\nprintf "wireguard-called %s\\n" "$*"\n',
+                        encoding="utf-8", newline="\n")
+        real.chmod(0o755)
+        # 注意: 脚本写文件再跑, 别用 bash -c(Windows 上中间那层会先展开 $VAR)
+        (root / "run.sh").write_text(
+            'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\nwrite_short_wg_wrapper "$ROOT" "$ROOT/wg"\n',
+            encoding="utf-8", newline="\n")
+        subprocess.run(["bash", "-c", "bash run.sh"], cwd=str(root),
+                       capture_output=True, text=True, timeout=60, encoding="utf-8")
+        return root, real
+
+    def _wg(self, args, real="./real-wg"):
+        # 注意: 变量要在命令行里给。Windows 上 python 的 env= 传不进 WSL 的 bash。
+        root, _ = self._sandbox()
+        cmd = "WGAIO_REAL_WG=%s bash wg %s" % (real, " ".join(args))
+        return subprocess.run(["bash", "-c", cmd], cwd=str(root),
+                              capture_output=True, text=True, timeout=60, encoding="utf-8")
+
+    def test_wireguard_subcommands_pass_through(self):
+        for args in (["show"], ["set", "wg0", "peer", "X", "remove"],
+                     ["genkey"], ["pubkey"], ["--version"]):
+            r = self._wg(args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("wireguard-called", r.stdout, args)
+
+    def test_wgaio_subcommands_and_menu_go_to_wgaio(self):
+        for args in ([], ["user", "list"], ["upgrade"], ["install"]):
+            r = self._wg(args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("wgaio-called", r.stdout, args)
+
+    def test_missing_real_wg_is_reported(self):
+        r = self._wg(["show"], real="/nonexistent/wg")
+        self.assertEqual(r.returncode, 127)
+        self.assertIn("WireGuard", r.stderr)
+
+    def test_banner_has_author_and_repo(self):
+        root, _ = self._sandbox()
+        (root / "run.sh").write_text(
+            'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\nprint_welcome_banner\n',
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "-c", "bash run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Welcome", r.stdout)
+        self.assertIn("@keiraee", r.stdout)
+        self.assertIn("github.com/keiraee/wg-allin-one", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

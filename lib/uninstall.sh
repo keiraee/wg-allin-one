@@ -27,6 +27,10 @@ cmd_uninstall() {
   # 只删 wgaio 自己的 Caddy 配置和数据; caddy 二进制留着(同机 HY2 可能还在用)
   rm -rf /etc/wgaio /var/lib/wgaio-caddy /var/log/wgaio
   rm -f /usr/local/bin/wgaio
+  # 只删本工具写的短命令, 别动别人的 wg
+  if [ -f /usr/local/bin/wg ] && grep -q "$WGAIO_SHORT_CMD_MARK" /usr/local/bin/wg 2>/dev/null; then
+    rm -f /usr/local/bin/wg
+  fi
   rm -f /etc/letsencrypt/renewal-hooks/deploy/wgaio
   rm -f /etc/sysctl.d/99-wgaio.conf
   rm -rf "${WGAIO_ROOT}/certs" "${WGAIO_ROOT}/snapshots"

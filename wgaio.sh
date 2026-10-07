@@ -176,7 +176,7 @@ usage() {
   cat >&2 <<'EOF'
 用法: wgaio [子命令]
 
-  wgaio                   打开管理菜单(终端里直接进入)
+  wgaio                   打开管理菜单(终端里直接进入; 装了短命令后敲 wg 也一样)
   install                 向导式安装(中文问答)
   version                 显示版本
   user add|del|edit|list|show|disable|enable|rotate   设备管理
@@ -194,6 +194,7 @@ usage() {
 切回正式版: WGAIO_REF=latest wgaio upgrade
 抢先试用: WGAIO_REF=main wgaio upgrade
 设备管理细节: wgaio user --help
+短命令: wg 等价于 wgaio; wg show/set/genkey 等仍交给真正的 WireGuard
 EOF
 }
 

@@ -181,6 +181,13 @@ cmd_install() {
 exec bash '$dest/wgaio.sh' "\$@"
 EOF
     chmod 755 /usr/local/bin/wgaio
+    # 短命令 wg: 已经存在且不是本工具写的就不动它(别覆盖别人的 wg)
+    if [ -e /usr/local/bin/wg ] && ! grep -q "$WGAIO_SHORT_CMD_MARK" /usr/local/bin/wg 2>/dev/null; then
+      warn "/usr/local/bin/wg 已存在且不是本工具写的, 跳过短命令(仍可用 wgaio)"
+    else
+      write_short_wg_wrapper "$dest" /usr/local/bin/wg
+      log "短命令已就位: 敲 wg 进菜单; wg show/set/genkey 等仍转交给真正的 WireGuard"
+    fi
     if [ -f "$ROOT/lib/panel.sh" ]; then
       . "$ROOT/lib/panel.sh"
       install_panel_unit "$dest"
@@ -237,6 +244,7 @@ EOF
   # shellcheck source=lib/upgrade.sh
   . "$ROOT/lib/upgrade.sh"
   write_track "$dest"
-  log "之后直接执行 wgaio 进入管理菜单"
+  log "之后直接执行 wgaio(或短命令 wg) 进入管理菜单"
   printf '\n'
+  print_welcome_banner
 }

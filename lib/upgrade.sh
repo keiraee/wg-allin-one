@@ -276,6 +276,7 @@ cmd_upgrade() {
       log "本次哈希: $(hash_label "$old_sum" "$remote_sha")"
       log "提交未变化, 无需覆盖 (若怀疑本地文件损坏: wgaio verify --fix)"
       write_track "$WGAIO_ROOT"
+      print_welcome_banner
       return 0
     fi
     if same_commit "$old_commit" "$remote_sha"; then
@@ -316,6 +317,7 @@ cmd_upgrade() {
   fi
   note_menu_reload
   log "升级完成(config.json 与 clients/ 未覆盖)"
+  print_welcome_banner
 }
 
 newest_snapshot() {

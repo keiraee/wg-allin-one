@@ -215,6 +215,7 @@ menu_uninstall() {
 cmd_menu() {
   local choice
   export WGAIO_IN_MENU=1
+  print_welcome_banner
   if [ "$(id -u)" -ne 0 ]; then
     warn "当前不是 root，改配置和重启服务会失败。请用: sudo wgaio"
   fi
