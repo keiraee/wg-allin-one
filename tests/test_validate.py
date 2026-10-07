@@ -99,5 +99,20 @@ class EndpointTests(unittest.TestCase):
                 core.normalize_dns(dns)
 
 
+class ConfigTests(unittest.TestCase):
+    BASE = {"vpn_cidr": "10.66.66.0/24", "wg_port": 51820,
+            "endpoint": "203.0.113.1:51820", "client_dns": "1.1.1.1",
+            "lan_cidrs": [], "default_mode": "split", "panel_port": 8888}
+
+    def test_vpn_cidr_slash32_rejected(self):
+        """/32 的服务端地址(base+1)在网段外，也分不出设备地址，校验期就该拒绝。"""
+        with self.assertRaises(core.ApiError):
+            core.validate_config(dict(self.BASE, vpn_cidr="10.66.66.1/32"))
+
+    def test_vpn_cidr_slash31_accepted(self):
+        """/31 只剩一个设备地址，但仍能装出可用隧道。"""
+        core.validate_config(dict(self.BASE, vpn_cidr="10.66.66.0/31"))
+
+
 if __name__ == "__main__":
     unittest.main()

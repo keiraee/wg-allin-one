@@ -86,6 +86,9 @@ def validate_config(cfg):
         cidr_bounds(cfg["vpn_cidr"])
     except ValueError:
         raise ApiError("vpn_cidr 前缀长度不合法: %s" % cfg.get("vpn_cidr"))
+    # /32 里服务端地址是 base+1，落在网段外，也分不出任何设备地址，装出来是废隧道
+    if int(str(cfg["vpn_cidr"]).partition("/")[2] or 32) > 31:
+        raise ApiError("vpn_cidr 前缀最长 /31: %s 分不出设备地址" % cfg.get("vpn_cidr"))
     port = cfg.get("wg_port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ApiError("wg_port 必须是 1-65535 的整数")
