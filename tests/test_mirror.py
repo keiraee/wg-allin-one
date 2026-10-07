@@ -66,10 +66,16 @@ class MirrorTests(unittest.TestCase):
         src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
         self.assertIn("github_urls", src)   # 依次试直连和各镜像
 
-    def test_caddy_binary_uses_resume_and_long_timeout(self):
-        """Caddy 包 18MB, 国内慢: 必须断点续传 + 放宽超时, 否则永远下不完。"""
+    def test_caddy_binary_uses_long_timeout_and_no_resume(self):
+        """Caddy 包 18MB, 国内慢: 放宽超时(900s)以应对慢网; 但不能断点续传,
+        跨来源续传会拼坏文件(垃圾头 + 真包尾)。"""
         src = (ROOT / "lib" / "caddy.sh").read_text(encoding="utf-8")
-        self.assertIn("-C -", src)
+        # -C - 只能出现在注释里解释为什么不用, 不能出现在实际的 curl 下载命令里
+        for line in src.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            self.assertNotIn("-C -", stripped, "curl 命令里不应该有 -C -")
         self.assertIn("--max-time 900", src)
 
     def test_caddy_download_aborts_slow_direct(self):

@@ -92,9 +92,9 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   fi
   actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-    # 续传时如果镜像对 Range 请求回了整包(200 而不是 206), curl 会把整包追加在
-    # 残包后面, 文件就比真实的大。删掉重下一遍(这次不带 -C -, 全新下载)。
-    warn "Caddy 包校验没对上(续传可能把内容拼坏了), 删掉重下一遍"
+    # 检验没过: 可能是直连劫持, 也可能是镜像缓存坏了。
+    # 删掉重下: 每个 URL 全新下载, 不带 -C -, 避免跨来源续传拼坏文件。
+    warn "Caddy 包校验没对上, 删掉重下一遍"
     rm -f "${tmp}/${asset}"
     local u2 got2=0
     while IFS= read -r u2; do
