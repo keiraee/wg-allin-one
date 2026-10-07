@@ -150,21 +150,34 @@ run_wizard() {
   #    只有显式 WGAIO_TLS=internal|off 才用自签/明文。
   printf '面板从哪里可以打开:\n' >&2
   printf '  1) 仅 VPN 内(更安全)\n' >&2
-  printf '  2) 公网直接访问(自动申请 Let'"'"'s Encrypt 正式证书)\n' >&2
-  access_choice="$(ask '选 1 或 2' '1')"
+  printf '  2) 公网直接访问-域名(自动申请 Let'"'"'s Encrypt 正式证书)\n' >&2
+  printf '  3) 公网直接访问-IP(自签证书; 中国服务器不用备案, 浏览器会提示不受信)\n' >&2
+  access_choice="$(ask '选 1、2 或 3' '1')"
   local panel_bind="" tls_choice="${WGAIO_TLS:-}" domain="" tls_cn="" gw_ip
   gw_ip="$("$py" -c "import sys;sys.path.insert(0,'$ROOT/lib');import core;b,_=core.cidr_bounds(sys.argv[1]);print(core.int_to_ip(b+1))" "$vpn_cidr")"
   case "$access_choice" in
     1) panel_bind="$gw_ip" ;;
-    2) panel_bind="0.0.0.0" ;;
-    *) die "无效选择, 请输入 1 或 2" ;;
+    2|3) panel_bind="0.0.0.0" ;;
+    *) die "无效选择, 请输入 1、2 或 3" ;;
   esac
   case "$tls_choice" in
     self) tls_choice="internal" ;;
     http) tls_choice="off" ;;
   esac
 
-  if [ "$access_choice" = "2" ]; then
+  if [ "$access_choice" = "3" ]; then
+    # 中国服务器用域名要备案, 没备案的域名会被运营商拦; 直接用 IP 就绕开了
+    local pub_ip
+    pub_ip="${endpoint%%:*}"
+    case "$pub_ip" in
+      *[!0-9.]*|"") pub_ip="$(detect_ip || true)" ;;
+    esac
+    [ -n "$pub_ip" ] || die "取不到公网 IP; 可以改用方式 2 填域名, 或设 WGAIO_DETECT_IP"
+    tls_cn="$pub_ip"
+    tls_choice="internal"
+    log "面板用 IP 直连: ${pub_ip}(自签证书, 浏览器会提示不受信)"
+    log "中国服务器不用备案; 有域名且能备案的话方式 2 能申请正式证书"
+  elif [ "$access_choice" = "2" ]; then
     local ip_part default_domain
     ip_part="${endpoint%%:*}"
     # 默认自动域名：纯 IPv4 拼 sslip.io；endpoint 本来就是域名就直接用它。

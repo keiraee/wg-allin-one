@@ -174,7 +174,13 @@ render_caddyfile() {  # render_caddyfile <域名> <面板端口> <后端端口> 
   local addr
   case "$mode" in
     off) addr="http://${domain}:${port}" ;;
-    *)   addr="${domain}:${port}" ;;
+    *)
+      case "$domain" in
+        # 纯 IP 站点要显式写 https://, 否则 Caddy 会当成域名去申请证书
+        [0-9]*.[0-9]*.[0-9]*.[0-9]*) addr="https://${domain}:${port}" ;;
+        *) addr="${domain}:${port}" ;;
+      esac
+      ;;
   esac
   {
     printf '{\n'

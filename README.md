@@ -2,7 +2,7 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
-当前正式版是 [v0.3.8](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.8)。
+当前正式版是 [v0.3.9](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.9)。
 
 更新有两条轨道：
 
@@ -14,7 +14,7 @@
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.8/wgaio.sh -o wgaio.sh
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.9/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -45,10 +45,10 @@ sudo bash wgaio.sh install
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.8`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.9`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.8`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.9`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
@@ -94,7 +94,7 @@ WGAIO_NO_MIRROR=1 wgaio upgrade
 第一次装如果 `raw.githubusercontent.com` 打不开，可以借加速站取脚本：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.8/wgaio.sh -o wgaio.sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.9/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -114,6 +114,14 @@ wgaio mirror restore    # 还原成原来的源
 dnf/yum 的源文件格式各家不同，没做自动替换，失败时会提示你手动换。
 
 镜像只换下载通道，套件内容仍按 `SHA256SUMS` 校验；加速站是第三方，介意就设 `WGAIO_NO_MIRROR=1`。
+
+## 中国服务器：用 IP 直连，不用备案
+
+中国境内的服务器，域名没备案的话，运营商会把 80/443 上的访问拦成「尚未备案」的提示页。面板向导里选 **3) 公网直接访问-IP** 就能绕开：
+
+- 域名换成本机公网 IP，证书用自签（TLS 对 IP 不发 SNI，不会被按域名拦）
+- 地址形如 `https://你的公网IP:8443/wgaio-xxxxxxxxxxxx/`，浏览器第一次提示证书不受信，点继续即可
+- 有域名、能备案的机器仍然选方式 2，能拿到正式证书
 
 ## 子命令
 
