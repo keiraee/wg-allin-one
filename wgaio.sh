@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.1"
+VERSION="0.3.2"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
@@ -36,11 +36,12 @@ if [ "$need_bootstrap" = "1" ]; then
     printf '[wgaio] 错误: %s\n' "$1" >&2
     exit 1
   }
-  # 国内机器直连 GitHub 经常不通: 设 WGAIO_MIRROR=<前缀> 会按「直连 → 各镜像」依次试
+  # 国内机器直连 GitHub 经常不通: 默认按「直连 → 公共加速站」依次试;
+  # WGAIO_MIRROR 可换前缀, WGAIO_NO_MIRROR=1 关掉(这份列表要和 lib/core.sh 保持一致)
   boot_urls() {
     printf '%s\n' "$1"
     local m
-    for m in ${WGAIO_MIRROR:-}; do
+    for m in ${WGAIO_MIRROR:-${WGAIO_MIRRORS_DEFAULT:-https://gh-proxy.com/ https://ghfast.top/ https://ghproxy.net/}}; do
       case "$m" in
         */) ;;
         *) m="$m/" ;;

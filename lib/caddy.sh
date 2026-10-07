@@ -44,16 +44,15 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   asset="caddy_${ver}_linux_${arch}.tar.gz"
   base="https://github.com/caddyserver/caddy/releases/download/v${ver}"
   tmp="$(mktemp -d)"
-  if ! curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 180 \
-        "${base}/${asset}" -o "${tmp}/${asset}" \
-     || ! curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
-        "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
-    rm -rf "$tmp"; warn "下载 Caddy 失败"; return 1
+  # github_curl 会先直连、失败再依次走公共加速站
+  if ! github_curl "${base}/${asset}" -o "${tmp}/${asset}" \
+     || ! github_curl "${base}/caddy_${ver}_checksums.txt" -o "${tmp}/sums.txt"; then
+    rm -rf "$tmp"; warn "下载 Caddy 失败。${MIRROR_HINT}"; return 1
   fi
   expected="$(awk -v a="$asset" '$2==a {print $1; exit}' "${tmp}/sums.txt")"
   actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-    rm -rf "$tmp"; warn "Caddy 校验失败"; return 1
+    rm -rf "$tmp"; warn "Caddy 校验失败(镜像可能被篡改或缓存坏了), 换一个镜像再试: ${MIRROR_HINT}"; return 1
   fi
   tar xzf "${tmp}/${asset}" -C "$tmp" caddy || { rm -rf "$tmp"; return 1; }
   install -m 0755 "${tmp}/caddy" /usr/local/bin/caddy || { rm -rf "$tmp"; return 1; }

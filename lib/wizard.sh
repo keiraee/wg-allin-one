@@ -72,9 +72,12 @@ detect_ip() {
     printf '%s' "$WGAIO_DETECT_IP"
     return 0
   fi
+  # 国内机器访问 api.ipify.org 经常超时, 所以多放几个源; 有的接口带中文前缀, 统一抠 IPv4
   local ip s
-  for s in "https://api.ipify.org" "https://ifconfig.me/ip" "https://icanhazip.com"; do
-    ip="$(curl -fsSL --max-time 4 "$s" 2>/dev/null | tr -d '[:space:]')"
+  for s in "https://ip.sb" "https://api.ipify.org" "https://ipinfo.io/ip" \
+           "https://ifconfig.me/ip" "https://icanhazip.com" "https://myip.ipip.net"; do
+    ip="$(curl -fsSL --max-time 4 "$s" 2>/dev/null \
+          | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n 1 || true)"
     if printf '%s' "$ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
       printf '%s' "$ip"
       return 0

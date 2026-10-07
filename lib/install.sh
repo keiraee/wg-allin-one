@@ -9,13 +9,18 @@ install_deps() {
   log "安装系统依赖(wireguard / python3 / iptables)..."
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq && apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl
+    apt-get update -qq || warn "apt update 失败; 国内机器可以先把 /etc/apt/sources.list 换成国内镜像"
+    apt-get install -y -qq wireguard wireguard-tools python3 iptables openssl \
+      || warn "依赖没装全; 国内机器建议先换 apt 源, 再执行 wgaio install"
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y wireguard-tools python3 iptables openssl
+    dnf install -y wireguard-tools python3 iptables openssl \
+      || warn "依赖没装全; 国内机器建议先换 dnf 源, 再执行 wgaio install"
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y wireguard-tools python3 iptables openssl
+    yum install -y wireguard-tools python3 iptables openssl \
+      || warn "依赖没装全; 国内机器建议先换 yum 源, 再执行 wgaio install"
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache wireguard-tools python3 iptables openssl
+    apk add --no-cache wireguard-tools python3 iptables openssl \
+      || warn "依赖没装全; 国内机器建议先换 apk 源, 再执行 wgaio install"
   else
     die "不识别的包管理器, 请手动安装 wireguard-tools 和 python3 后重试"
   fi

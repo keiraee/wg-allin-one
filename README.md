@@ -2,7 +2,7 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
-当前正式版是 [v0.3.1](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.1)。
+当前正式版是 [v0.3.2](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.2)。
 
 更新有两条轨道：
 
@@ -14,7 +14,7 @@
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.1/wgaio.sh -o wgaio.sh
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.2/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -45,10 +45,10 @@ sudo bash wgaio.sh install
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.1`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.2`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.1`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.2`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
@@ -75,28 +75,30 @@ sudo WGAIO_REF=main bash wgaio.sh install
 
 要回到正式版，再执行一次 `WGAIO_REF=latest wgaio upgrade`。
 
-## 国内网络下载失败怎么办
+## 国内网络
 
-GitHub 在国内经常连不上（`curl: (7)`、卡住或 429）。设一个加速前缀再执行一次就行，wgaio 会**先试直连、连不上才走镜像**：
+GitHub 在国内经常连不上（`curl: (7)`、卡住或 429）。wgaio **默认就会自动兜底**：先直连，连不上再依次走公共加速站（`gh-proxy.com`、`ghfast.top`、`ghproxy.net`），走镜像时输出里会写一行「直连失败, 改走镜像: …」。套件下载、升级、装 Caddy 都走这条路。
 
-```bash
-WGAIO_MIRROR=https://gh-proxy.com/ wgaio upgrade
-```
-
-全新安装同理：
+换成自己的加速前缀（多个用空格分开）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.1/wgaio.sh -o wgaio.sh
-sudo WGAIO_MIRROR=https://gh-proxy.com/ bash wgaio.sh install
+WGAIO_MIRROR=https://你的加速站/ wgaio upgrade
 ```
 
-可以给多个，按顺序试：
+不想走第三方加速（比如内网已有代理）：
 
 ```bash
-WGAIO_MIRROR="https://gh-proxy.com/ https://ghfast.top/" wgaio upgrade
+WGAIO_NO_MIRROR=1 wgaio upgrade
 ```
 
-镜像只换下载通道，套件内容仍然按 `SHA256SUMS` 校验。镜像站是第三方，介意就别设。
+第一次装如果 `raw.githubusercontent.com` 打不开，可以借加速站取脚本：
+
+```bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.2/wgaio.sh -o wgaio.sh
+sudo bash wgaio.sh install
+```
+
+`apt/dnf/yum/apk` 装系统依赖走的是发行版源，国内机器没换源会很慢甚至失败，wgaio 会提示你先换源。镜像只换下载通道，套件内容仍按 `SHA256SUMS` 校验；加速站是第三方，介意就设 `WGAIO_NO_MIRROR=1`。
 
 ## 子命令
 

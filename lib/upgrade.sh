@@ -134,51 +134,6 @@ same_commit() {
   is_commit_sha "${1:-}" && is_commit_sha "${2:-}" && [ "$1" = "$2" ]
 }
 
-# 国内机器直连 GitHub 经常不通。设 WGAIO_MIRROR=<前缀> 就按「直连 → 各镜像」依次试，
-# 多个用空格分开，例如: WGAIO_MIRROR="https://gh-proxy.com/ https://ghfast.top/"
-MIRROR_HINT='国内网络可以走加速: WGAIO_MIRROR=https://gh-proxy.com/ 再执行一次'
-
-github_urls() {  # 依次输出直连地址和加过镜像前缀的地址
-  local url="$1" m
-  printf '%s\n' "$url"
-  for m in ${WGAIO_MIRROR:-}; do
-    case "$m" in
-      */) ;;
-      *) m="$m/" ;;
-    esac
-    printf '%s%s\n' "$m" "$url"
-  done
-}
-
-github_curl() {  # github_curl <url> <curl 参数...>
-  local url="$1" u
-  shift
-  command -v curl >/dev/null 2>&1 || die "需要 curl 才能下载升级包"
-  while IFS= read -r u; do
-    if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 \
-        -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$u" "$@"; then
-      return 0
-    fi
-  done < <(github_urls "$url")
-  return 1
-}
-
-# 把 HTTP 状态留在当前 shell。不要放进 $()，否则状态码会丢。
-github_get() {  # github_get <url> <输出文件>; 结果放 GITHUB_HTTP
-  local url="$1" out="$2" u code first=""
-  command -v curl >/dev/null 2>&1 || die "需要 curl 才能下载升级包"
-  while IFS= read -r u; do
-    code="$(curl -sS -L --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
-      -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
-      -o "$out" -w '%{http_code}' "$u" || true)"
-    code="${code:-000}"
-    if [ "$code" = "200" ]; then GITHUB_HTTP=200; return 0; fi
-    # 000 = 连不上, 换下一个; 有明确应答(404/403 等)就记下来, 别被后面的 000 盖掉
-    if [ "$code" != "000" ] && [ -z "$first" ]; then first="$code"; fi
-  done < <(github_urls "$url")
-  GITHUB_HTTP="${first:-000}"
-}
-
 json_sha() {
   # 同一行里可能有多个 sha。=~ 取最左边那一个，避免 grep -o 把后面的也捞进来。
   local payload="${1:-}"
