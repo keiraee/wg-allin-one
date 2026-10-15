@@ -118,7 +118,8 @@ install_caddy_release() {  # 官方 release 二进制, 带 SHA256 校验
   mkdir -p "$WGAIO_CADDY_DATA" 2>/dev/null || true
   : > "$WGAIO_CADDY_DATA/.wgaio-installed-caddy" 2>/dev/null || true
   rm -rf "$tmp"
-  caddy_bin
+  # 直接回装好的路径, 不要再走 caddy_bin: 系统里可能还躺着一个没通过校验的旧 caddy
+  printf '%s' /usr/local/bin/caddy
 }
 
 install_caddy_bin() {  # 复用已有的 caddy; 没有才装
@@ -338,8 +339,27 @@ install_wgaio_caddy() {  # install_wgaio_caddy <config.json>
   install -d -m 700 "$WGAIO_CADDY_DATA" 2>/dev/null || install -d "$WGAIO_CADDY_DATA"
   render_caddyfile "$domain" "$port" "$backend" "$mode" "$challenge" \
     "$WGAIO_CADDY_DIR/Caddyfile" "$(cfg_get "$cfg" panel_bind)"
-  if ! "$bin" validate --config "$WGAIO_CADDY_DIR/Caddyfile" --adapter caddyfile >/dev/null 2>&1; then
-    die "生成的 Caddyfile 校验失败: $WGAIO_CADDY_DIR/Caddyfile"
+  # 校验失败不能只报一句「校验失败」就死: 系统里已有的 caddy 可能太旧或是变种。
+  # 先亮出报错, 换钉死版本再试一次; 还不行就退回自签——安装绝不能死在这一步。
+  local vout="" ok=0
+  if vout="$("$bin" validate --config "$WGAIO_CADDY_DIR/Caddyfile" --adapter caddyfile 2>&1)"; then
+    ok=1
+  else
+    warn "Caddy 校验没通过($("$bin" version 2>/dev/null | head -n 1); 二进制: $bin):"
+    printf '%s\n' "$vout" >&2
+    warn "换钉死版本 Caddy 重试..."
+    if bin="$(install_caddy_release)"; then
+      if vout="$("$bin" validate --config "$WGAIO_CADDY_DIR/Caddyfile" --adapter caddyfile 2>&1)"; then
+        ok=1
+      fi
+    fi
+  fi
+  if [ "$ok" -ne 1 ]; then
+    warn "Caddyfile 校验还是不过(配置在 $WGAIO_CADDY_DIR/Caddyfile):"
+    printf '%s\n' "$vout" >&2
+    warn "退回面板直接自签, 面板照常能用; 想走 Caddy 修好后执行 wgaio cert fix"
+    fallback_self_signed "$cfg" "$domain" "$port"
+    return 0
   fi
   if [ -n "${WGAIO_CADDY_UNIT_OUT:-}" ]; then
     write_wgaio_caddy_unit "$bin" "$WGAIO_CADDY_UNIT_OUT"

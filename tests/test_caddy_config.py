@@ -341,6 +341,66 @@ class CaddyConfigTests(unittest.TestCase):
         caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
         self.assertIn("issuer acme", caddyfile)
 
+    # ---- 系统里已有的 caddy 校验不过: 亮报错 → 换钉死版本 → 再不行退自签 ----
+
+    def _write_exe(self, root, name, body):
+        p = root / name
+        p.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8", newline="\n")
+        p.chmod(0o755)
+
+    def test_validate_failure_falls_back_with_visible_error(self):
+        """旧/变种 caddy 校验不过: 报错要露出来, 退回自签, 不许 die 死在半路。"""
+        root = self._sandbox()
+        (root / "config.json").write_text(
+            json.dumps({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                        "tls_cn": "203.0.113.9", "tls_mode": "internal",
+                        "panel_backend_port": 8888}), encoding="utf-8")
+        self._write_exe(root, "fake-caddy",
+                        'if [ "$1" = "version" ]; then echo "v1.0.0 fake"; exit 0; fi\n'
+                        'echo "Error: unrecognized directive: storage" >&2\nexit 1\n')
+        script = (
+            'export WGAIO_SKIP_NET_CHECK=1 WGAIO_CADDY_BIN=./fake-caddy '
+            'WGAIO_CADDY_DIR=./caddy-etc WGAIO_CADDY_LOG=./caddy-log '
+            'WGAIO_CADDY_DATA=./caddy-data WGAIO_CADDY_UNIT_OUT=./wgaio-caddy.service; '
+            'ROOT="."; . "$ROOT/lib/core.sh"; . "$ROOT/lib/caddy.sh"; '
+            'install_caddy_release() { return 1; }; '
+            'install_wgaio_caddy ./config.json; cat ./config.json'
+        )
+        r, root = self._run(script, root=root)
+        self.assertEqual(r.returncode, 0, "校验失败不该把安装搞死: %s" % r.stderr)
+        self.assertIn("unrecognized directive", r.stderr, "被吞掉的校验报错必须露出来")
+        self.assertIn("钉死版本", r.stdout + r.stderr)
+        got = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertIn(got["tls_mode"], ("self", "off"), "必须退回自签/明文兜底")
+        self.assertEqual(got["panel_backend_port"], "")
+
+    def test_validate_failure_retries_with_pinned_caddy(self):
+        """钉死版本能通过时用它, 单元也要指向新的二进制。"""
+        root = self._sandbox()
+        (root / "config.json").write_text(
+            json.dumps({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                        "tls_cn": "203.0.113.9", "tls_mode": "internal",
+                        "panel_backend_port": 8888}), encoding="utf-8")
+        self._write_exe(root, "fake-caddy",
+                        'if [ "$1" = "version" ]; then echo "v1.0.0 fake"; exit 0; fi\n'
+                        'echo "Error: boom" >&2\nexit 1\n')
+        self._write_exe(root, "fake-pinned", 'exit 0\n')
+        script = (
+            'export WGAIO_SKIP_NET_CHECK=1 WGAIO_CADDY_BIN=./fake-caddy '
+            'WGAIO_CADDY_DIR=./caddy-etc WGAIO_CADDY_LOG=./caddy-log '
+            'WGAIO_CADDY_DATA=./caddy-data WGAIO_CADDY_UNIT_OUT=./wgaio-caddy.service; '
+            'ROOT="."; . "$ROOT/lib/core.sh"; . "$ROOT/lib/caddy.sh"; '
+            'install_caddy_release() { printf %s ./fake-pinned; }; '
+            'install_wgaio_caddy ./config.json; cat ./config.json'
+        )
+        r, root = self._run(script, root=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Error: boom", r.stderr)
+        got = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["tls_mode"], "internal", "钉死版本通过后不该退回自签")
+        unit = (root / "wgaio-caddy.service").read_text(encoding="utf-8")
+        self.assertIn("./fake-pinned", unit, "服务必须指向通过校验的那个二进制")
+
 
 if __name__ == "__main__":
     unittest.main()
