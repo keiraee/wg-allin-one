@@ -29,6 +29,11 @@ class EntryTests(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("还没有配置", r.stderr)
 
+    def test_cert_fix_without_config(self):
+        r = run_sh("cert", "fix")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("还没有配置", r.stderr)
+
     def test_unknown_subcommand(self):
         r = run_sh("frobnicate")
         self.assertEqual(r.returncode, 2)

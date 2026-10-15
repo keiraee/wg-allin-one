@@ -290,6 +290,7 @@ cmd_upgrade() {
   fi
   snapshot
   apply_tree "$src" "$WGAIO_ROOT"
+  refresh_short_cmd "$WGAIO_ROOT"
   if [ -n "$cleanup" ]; then
     unset WGAIO_CLEAN_DIR
     rm -rf "$cleanup"
@@ -382,6 +383,7 @@ cmd_verify() {
   check_sha256 "$src"
   snapshot "$dir"
   apply_tree "$src" "$dir"
+  refresh_short_cmd "$dir"
   # 先 unset 再删: 顺序反了的话, 中途失败时 EXIT trap 会再去删一个已经删过的目录
   unset WGAIO_CLEAN_DIR
   rm -rf "$cleanup"

@@ -2033,7 +2033,7 @@ def serve(cfg=None):
     # 但 Caddy 前置时回环这一段本来就是明文，公网那段是 Caddy 的 TLS，不该报警。
     if not behind_proxy and scheme == "http" and str(cfg.get("panel_bind") or "").strip() == "0.0.0.0":
         print("[wgaio] 警告: 面板绑定 0.0.0.0 但没有可用证书, 现在是明文 HTTP, "
-              "令牌会以明文经过网络。放行 TCP 80 后执行 wgaio cert, "
+              "令牌会以明文经过网络。执行 wgaio cert fix 修复证书, "
               "或把 config.json 的 panel_bind 改回内网地址。", file=sys.stderr, flush=True)
     try:
         httpd.serve_forever()

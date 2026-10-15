@@ -2,7 +2,7 @@
 
 一句话简介: 一键部署 WireGuard 中转 + 管理面板 + 设备管理 CLI。
 
-当前正式版是 [v0.3.16](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.16)。
+当前正式版是 [v0.3.17](https://github.com/keiraee/wg-allin-one/releases/tag/v0.3.17)。
 
 更新有两条轨道：
 
@@ -14,7 +14,7 @@
 安装当前正式版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.16/wgaio.sh -o wgaio.sh
+curl -fsSL https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.17/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -37,18 +37,19 @@ sudo bash wgaio.sh install
 
 装好后在终端里直接执行 `wgaio`（不要带子命令）进入菜单，里面可以升级、管设备、开关面板、看日志、回滚和卸载。`wgaio --help` 仍是命令说明。
 
-安装会顺带写一个短命令 `wg`：敲 `wg` 直接进菜单，`wg user add …`、`wg upgrade` 这些也和 `wgaio` 等价；
-`wg show`、`wg set`、`wg genkey` 等 WireGuard 自己的子命令仍然原样转交给真正的 `/usr/bin/wg`，不会抢。
-（`/usr/local/bin/wg` 已经存在且不是本工具写的时，安装会跳过短命令，只保留 `wgaio`。）
+安装会顺带写一个短命令 `wgo`：敲 `wgo` 直接进菜单，`wgo user add …`、`wgo upgrade` 这些也和 `wgaio` 等价。
+`wgo` 只是 `wgaio` 的别名，不碰 WireGuard 自己的 `wg`——`wg show`、`wg genkey` 仍然是真正的 `/usr/bin/wg`。
+（`/usr/local/bin/wgo` 已经存在且不是本工具写的时，安装会跳过短命令，只保留 `wgaio`。）
+0.3.17 之前装的短命令叫 `wg`，会挡住真正的 `wg`；升级或重装时会自动清掉换成 `wgo`。
 
 ## 已经装好了，怎么更新
 
 先看本机记的是哪条轨道：终端里执行 `wgaio`，菜单第一行的「轨道」就是。第 3 项也能看到轨道和哈希。
 
-- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.16`。
+- 轨道是 `latest`，或者还没有轨道记录：`wgaio upgrade` 拉 GitHub 最新 Release。菜单第 1 项「升级稳定版」相同。现在会得到 `v0.3.17`。
 - 轨道是 `main`：`wgaio upgrade` 继续拉 `main`。它不会自己改去正式版。
 
-从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.16`）：
+从 `main` 改回正式版，执行一次下面这句。执行后轨道改成 `latest`，程序换成当前最新 tag（现在是 `v0.3.17`）：
 
 ```bash
 WGAIO_REF=latest wgaio upgrade
@@ -94,7 +95,7 @@ WGAIO_NO_MIRROR=1 wgaio upgrade
 第一次装如果 `raw.githubusercontent.com` 打不开，可以借加速站取脚本：
 
 ```bash
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.16/wgaio.sh -o wgaio.sh
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/keiraee/wg-allin-one/v0.3.17/wgaio.sh -o wgaio.sh
 sudo bash wgaio.sh install
 ```
 
@@ -133,12 +134,15 @@ wgaio user add|del|edit|list|show|disable|enable|rotate
 wgaio panel start|stop|restart|status|install
 wgaio status
 wgaio cert
+wgaio cert fix
 wgaio logs
 wgaio backup
 wgaio backup restore 文件
 wgaio upgrade
 wgaio verify [--fix]
 wgaio rollback
+wgaio mirror [restore]
+wgaio token
 wgaio uninstall
 ```
 
@@ -158,6 +162,9 @@ wgaio uninstall
 - 80 空闲 → 用 HTTP-01，不碰 443；
 - 80 被占、443 空闲 → 用 TLS-ALPN-01，不碰 80；
 - 两个都被占（比如同机 HY2 的 Caddy 正在跑）→ 先用自签证书，面板照常能用；腾出其中一个后执行 `wgaio cert`。
+
+证书申请失败或降级成自签/明文后，执行 `wgaio cert fix` 修复：清掉降级残留，
+域名重新申请正式证书，IP 重新生成自签，Caddy 拿不到就退回 openssl 自签。菜单第 17 项相同。
 
 面板 HTTPS 端口默认 **8443**，不占 443，方便和同机 HY2 共存。地址不是只开端口，后面还有一串随机入口，
 例如 `https://156-231-141-104.sslip.io:8443/wgaio-a1b2c3d4e5f6/`；只打开 `:8443` 会看到 404。

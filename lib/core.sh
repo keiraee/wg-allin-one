@@ -65,6 +65,7 @@ udp_port_busy() {  # 该 UDP 端口是否已被占用
 }
 
 WGAIO_SHORT_CMD_MARK="wgaio-short-cmd"
+WGAIO_SHORT_CMD_DIR="${WGAIO_SHORT_CMD_DIR:-/usr/local/bin}"
 
 wgaio_repo_url() {
   printf 'https://github.com/%s' "${WGAIO_REPO:-keiraee/wg-allin-one}"
@@ -88,29 +89,33 @@ EOF
   printf '开源地址: %s\n\n' "$(wgaio_repo_url)"
 }
 
-write_short_wg_wrapper() {  # <安装根> <输出路径>
+write_short_wgo_wrapper() {  # <安装根> <输出路径>
   local dest="$1" out="$2"
   cat > "$out" <<EOF
 #!/usr/bin/env bash
-# $WGAIO_SHORT_CMD_MARK: wgaio 的短命令 wg。
-# 不跟 WireGuard 抢: 真正的 wg 在 /usr/bin/wg, WireGuard 自己的子命令原样转交,
-# 其余(包括不带参数)交给 wgaio。
-real="\${WGAIO_REAL_WG:-}"
-if [ -z "\$real" ]; then
-  for c in /usr/bin/wg /bin/wg /usr/sbin/wg; do
-    [ -x "\$c" ] && { real="\$c"; break; }
-  done
-fi
-case "\${1:-}" in
-  show|showconf|set|setconf|addconf|syncconf|genkey|genpsk|pubkey|version|help|--help|-h|--version)
-    if [ -n "\$real" ] && [ -x "\$real" ]; then exec "\$real" "\$@"; fi
-    printf '[wgaio] 找不到真正的 WireGuard wg, 请先安装 wireguard-tools\n' >&2
-    exit 127
-    ;;
-esac
+# $WGAIO_SHORT_CMD_MARK: wgaio 的短命令 wgo。
+# 只做 wgaio 别名, 不碰 WireGuard 自己的 wg(/usr/bin/wg 原样可用)。
 exec bash '$dest/wgaio.sh' "\$@"
 EOF
   chmod 755 "$out"
+}
+
+refresh_short_cmd() {  # <安装根>; 写 $WGAIO_SHORT_CMD_DIR/wgo, 清掉老版本的 wg 短命令
+  local dest="$1" dir="$WGAIO_SHORT_CMD_DIR"
+  # 老版本短命令叫 wg, 会挡住真正的 /usr/bin/wg(bare `wg` 进菜单而不是报用法)。
+  # 见到我们的标记就换掉; 不是本工具写的不动。
+  if [ -f "$dir/wg" ] && grep -q "$WGAIO_SHORT_CMD_MARK" "$dir/wg" 2>/dev/null; then
+    rm -f "$dir/wg" && log "已移除旧短命令 wg(会挡住真正的 WireGuard wg), 短命令改为 wgo"
+  fi
+  if [ -e "$dir/wgo" ] && ! grep -q "$WGAIO_SHORT_CMD_MARK" "$dir/wgo" 2>/dev/null; then
+    warn "$dir/wgo 已存在且不是本工具写的, 跳过短命令(仍可用 wgaio)"
+    return 0
+  fi
+  if write_short_wgo_wrapper "$dest" "$dir/wgo" 2>/dev/null; then
+    log "短命令已就位: 敲 wgo 进菜单(等价 wgaio; WireGuard 自己的命令仍是 wg)"
+  else
+    warn "短命令写入 $dir/wgo 失败(权限不足?), 仍可用 wgaio"
+  fi
 }
 
 # 国内机器直连 GitHub 经常不通: 默认「直连 → 公共加速站」依次试。

@@ -238,6 +238,109 @@ class CaddyConfigTests(unittest.TestCase):
                                capture_output=True, text=True, timeout=60, encoding="utf-8")
             self.assertEqual(r.returncode, 0, "%s: %s" % (mode, r.stderr or r.stdout))
 
+    # ---- wgaio cert fix: 证书失败降级后的修复 ----
+
+    def _fix(self, cfg):
+        root = self._sandbox()
+        (root / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        fake = root / "fake-caddy"
+        fake.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
+        fake.chmod(0o755)
+        # 单行脚本: _run 的 write_text 在 Windows 上会把 \n 翻成 \r\n, 多行脚本会全坏
+        script = (
+            'export WGAIO_SKIP_NET_CHECK=1 WGAIO_CADDY_BIN=./fake-caddy '
+            'WGAIO_CADDY_DIR=./caddy-etc WGAIO_CADDY_LOG=./caddy-log '
+            'WGAIO_CADDY_DATA=./caddy-data WGAIO_CADDY_UNIT_OUT=./wgaio-caddy.service; '
+            'ROOT="."; . "$ROOT/lib/core.sh"; . "$ROOT/lib/caddy.sh"; '
+            'fix_panel_tls ./config.json; cat ./config.json'
+        )
+        r, root = self._run(script, root=root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads((root / "config.json").read_text(encoding="utf-8")), root
+
+    def test_fix_degraded_domain_climbs_back_to_acme(self):
+        """域名站点降级成自签/明文 → fix 要爬回正式证书, 并补回 panel_backend_port。"""
+        got, root = self._fix({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                               "tls_cn": "a.example.com", "tls_mode": "self",
+                               "panel_backend_port": "",
+                               "tls_cert": "/x/wgaio.crt", "tls_key": "/x/wgaio.key"})
+        self.assertEqual(got["tls_mode"], "acme")
+        self.assertEqual(got["panel_backend_port"], 8888)
+        self.assertEqual(got["tls_cert"], "")
+        self.assertEqual(got["tls_key"], "")
+        caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("issuer acme", caddyfile)
+        self.assertIn("a.example.com:8443", caddyfile)
+
+    def test_fix_degraded_ip_climbs_to_caddy_internal(self):
+        """IP 站点没有正式证书 → fix 用 Caddy 自签, 不去撞 acme。"""
+        got, root = self._fix({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                               "tls_cn": "203.0.113.9", "tls_mode": "off",
+                               "panel_backend_port": ""})
+        self.assertEqual(got["tls_mode"], "internal")
+        self.assertEqual(got["panel_backend_port"], 8888)
+        caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("tls internal", caddyfile)
+        self.assertIn("default_sni 203.0.113.9", caddyfile)
+
+    def test_fix_vpn_only_plaintext_stays_off(self):
+        """仅 VPN 内的明文面板是有意为之, fix 不许自作主张上 TLS。"""
+        got, root = self._fix({"panel_port": 8443, "panel_bind": "10.66.66.1",
+                               "tls_cn": "10.66.66.1", "tls_mode": "off",
+                               "panel_backend_port": ""})
+        self.assertEqual(got["tls_mode"], "off")
+        caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("http://10.66.66.1:8443", caddyfile)
+        self.assertNotIn("tls internal", caddyfile)
+
+    def test_fix_healthy_acme_reapplies_unchanged(self):
+        got, root = self._fix({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                               "tls_cn": "a.example.com", "tls_mode": "acme",
+                               "panel_backend_port": 8888})
+        self.assertEqual(got["tls_mode"], "acme")
+        self.assertEqual(got["panel_backend_port"], 8888)
+        caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("issuer acme", caddyfile)
+
+    def test_fix_without_tls_cn_explains(self):
+        root = self._sandbox()
+        (root / "config.json").write_text(
+            json.dumps({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                        "tls_mode": "off", "panel_backend_port": ""}), encoding="utf-8")
+        script = ('ROOT="."; . "$ROOT/lib/core.sh"; . "$ROOT/lib/caddy.sh"; '
+                  'fix_panel_tls ./config.json')
+        r, _ = self._run(script, root=root)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("tls_cn", r.stderr)
+
+    def test_cert_fix_cli_dispatches_through_cmd_cert(self):
+        """端到端: wgaio cert fix 要真的走到 fix_panel_tls——路由写错也得有测试红。"""
+        root = self._sandbox()
+        for f in ("core.py", "install.sh", "wizard.sh"):
+            os.symlink(ROOT / "lib" / f, root / "lib" / f)
+        os.symlink(ROOT / "wgaio.sh", root / "wgaio.sh")
+        (root / "config.json").write_text(
+            json.dumps({"panel_port": 8443, "panel_bind": "0.0.0.0",
+                        "tls_cn": "a.example.com", "tls_mode": "off",
+                        "panel_backend_port": ""}), encoding="utf-8")
+        fake = root / "fake-caddy"
+        fake.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8", newline="\n")
+        fake.chmod(0o755)
+        (root / "run.sh").write_text(
+            "export WGAIO_SKIP_NET_CHECK=1 WGAIO_CADDY_BIN=./fake-caddy "
+            "WGAIO_CADDY_DIR=./caddy-etc WGAIO_CADDY_LOG=./caddy-log "
+            "WGAIO_CADDY_DATA=./caddy-data WGAIO_CADDY_UNIT_OUT=./wgaio-caddy.service\n"
+            "bash wgaio.sh cert fix\n",
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads((root / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(got["tls_mode"], "acme", "降级的 off 没被爬回正式证书: %s" % r.stdout)
+        self.assertEqual(got["panel_backend_port"], 8888)
+        caddyfile = (root / "caddy-etc" / "Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("issuer acme", caddyfile)
+
 
 if __name__ == "__main__":
     unittest.main()

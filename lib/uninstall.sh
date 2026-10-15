@@ -21,7 +21,7 @@ cmd_uninstall() {
   done
   local wgconf="${WGAIO_WG_CONF:-/etc/wireguard/wg0.conf}"
   local root="${WGAIO_ROOT:-$ROOT}"   # 单独 source 调用时 WGAIO_ROOT 可能没设
-  log "将清理: wgaio-panel / wgaio-caddy 服务, /etc/wgaio, /var/lib/wgaio-caddy, /var/log/wgaio, /usr/local/bin/wgaio, config.json, certs/, snapshots/, backups/, .wgaio-track, Let's Encrypt 续期钩子, /etc/sysctl.d/99-wgaio.conf"
+  log "将清理: wgaio-panel / wgaio-caddy 服务, /etc/wgaio, /var/lib/wgaio-caddy, /var/log/wgaio, /usr/local/bin/wgaio 和短命令, config.json, certs/, snapshots/, backups/, .wgaio-track, Let's Encrypt 续期钩子, /etc/sysctl.d/99-wgaio.conf"
   if [ "$keep_files" -eq 1 ]; then
     log "程序文件(lib/ panel/ wgaio.sh bin/)保留, 便于重装"
   else
@@ -83,9 +83,13 @@ cmd_uninstall() {
   fi
   rm -rf /etc/wgaio /var/lib/wgaio-caddy /var/log/wgaio
   rm -f /usr/local/bin/wgaio
-  if [ -f /usr/local/bin/wg ] && grep -q "${WGAIO_SHORT_CMD_MARK}" /usr/local/bin/wg 2>/dev/null; then
-    rm -f /usr/local/bin/wg
-  fi
+  # 短命令 wgo; 老版本的 wg 短命令也一并清(只清带本工具标记的)
+  local short
+  for short in /usr/local/bin/wgo /usr/local/bin/wg; do
+    if [ -f "$short" ] && grep -q "${WGAIO_SHORT_CMD_MARK}" "$short" 2>/dev/null; then
+      rm -f "$short"
+    fi
+  done
   rm -f /etc/letsencrypt/renewal-hooks/deploy/wgaio
   rm -f /etc/sysctl.d/99-wgaio.conf
   rm -rf "${root}/certs" "${root}/snapshots" "${root}/backups"

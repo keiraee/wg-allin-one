@@ -218,9 +218,9 @@ PY
     log "面板已改为直接提供 HTTPS(自签): https://${domain}:${port}/"
   else
     warn "自签证书没能生成(缺少 openssl 或生成失败), 面板暂时是明文 HTTP: http://${domain}:${port}/"
-    warn "公网环境下令牌会明文传输。请安装 openssl, 然后执行 wgaio cert 重新处理证书"
+    warn "公网环境下令牌会明文传输。请安装 openssl, 然后执行 wgaio cert fix 重新处理证书"
   fi
-  warn "等能连上 GitHub 了, 重新执行 wgaio install 会换成 Caddy 自动申请正式证书"
+  warn "等能连上 GitHub 了, 执行 wgaio cert fix 会换成 Caddy 自动申请正式证书"
 }
 
 pick_challenge() {  # http / tls-alpn / 空(两个端口都被占)
@@ -334,7 +334,8 @@ install_wgaio_caddy() {  # install_wgaio_caddy <config.json>
     return 0
   fi
   install -d -m 755 "$WGAIO_CADDY_DIR" "$WGAIO_CADDY_LOG"
-  install -d -m 700 "$WGAIO_CADDY_DATA"
+  # 700 是加固; 挂在 FAT/网络盘或 Windows 测试环境上 chmod 可能不支持, 目录建出来就行
+  install -d -m 700 "$WGAIO_CADDY_DATA" 2>/dev/null || install -d "$WGAIO_CADDY_DATA"
   render_caddyfile "$domain" "$port" "$backend" "$mode" "$challenge" \
     "$WGAIO_CADDY_DIR/Caddyfile" "$(cfg_get "$cfg" panel_bind)"
   if ! "$bin" validate --config "$WGAIO_CADDY_DIR/Caddyfile" --adapter caddyfile >/dev/null 2>&1; then
@@ -357,4 +358,53 @@ install_wgaio_caddy() {  # install_wgaio_caddy <config.json>
     internal) log "面板 TLS: Caddy 自签证书(域名 $domain, 端口 $port, 浏览器会提示不受信)" ;;
     off) log "面板 TLS: 已关闭(明文, 域名 $domain, 端口 $port)" ;;
   esac
+}
+
+fix_panel_tls() {  # fix_panel_tls <config.json>: 证书失败/降级后的修复
+  # 证书拿不到时会降级: 80/443 被占 → Caddy 自签; Caddy 装不上 → 面板直接自签;
+  # openssl 也没有 → 明文(还把 panel_backend_port 清掉)。修复 = 清掉这些残留,
+  # 重新按最好的路径搭一遍: 域名 → 正式证书, IP → Caddy 自签, Caddy 仍拿不到 → openssl 自签。
+  local cfg="$1" cn mode bind py
+  [ -f "$cfg" ] || die "找不到配置: $cfg"
+  cn="$(cfg_get "$cfg" tls_cn)"
+  mode="$(cfg_get "$cfg" tls_mode)"
+  bind="$(cfg_get "$cfg" panel_bind)"
+  [ -n "$cn" ] || die "配置里没有 tls_cn(面板域名), 无法处理证书"
+  # 公网面板停在降级状态(self/off/空) → 回到目标模式: 域名申请正式证书, IP 用 Caddy 自签。
+  # 先判降级再归一化 self→internal, 否则降级出来的 self 会被当成健康状态、爬不回 acme。
+  if [ "$bind" = "0.0.0.0" ]; then
+    case "$mode" in
+      acme|internal) ;;
+      *)
+        case "$cn" in
+          [0-9]*.[0-9]*.[0-9]*.[0-9]*) mode="internal" ;;
+          *) mode="acme" ;;
+        esac
+        log "面板 TLS 停在降级状态, 改回目标模式: $mode(域名 ${cn})"
+        ;;
+    esac
+  fi
+  py="$(find_python)"
+  "$py" - "$cfg" "$mode" "${WGAIO_BACKEND_PORT:-8888}" <<'PY'
+import json, sys
+p, mode, backend = sys.argv[1:4]
+with open(p, encoding="utf-8") as f:
+    d = json.load(f)
+# 曾退回面板直接对外时 panel_backend_port 被清空; 回到 Caddy 前置要补回来
+if not str(d.get("panel_backend_port") or "").strip():
+    d["panel_backend_port"] = int(backend)
+if mode:
+    d["tls_mode"] = mode
+    # 这两个是面板直接对外时用的; Caddy 前置下没用, 而且可能是降级时生成的旧自签
+    d["tls_cert"] = ""
+    d["tls_key"] = ""
+with open(p, "w", encoding="utf-8") as f:
+    f.write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+PY
+  chmod 600 "$cfg" 2>/dev/null || true
+  install_wgaio_caddy "$cfg"
+  # 后端可能刚从「直接对外」切回「只听回环」, 不重启还在绑公网端口
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl try-restart wgaio-panel 2>/dev/null || true
+  fi
 }

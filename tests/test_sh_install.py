@@ -229,56 +229,80 @@ class InstallTests(unittest.TestCase):
 
 
 class ShortCommandTests(unittest.TestCase):
-    """短命令 wg: WireGuard 自己的子命令转交真 wg, 其余(含不带参数)交给 wgaio。"""
+    """短命令 wgo: 纯 wgaio 别名。不叫 wg, 所以不挡真正的 /usr/bin/wg。"""
 
     def _sandbox(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         (root / "lib").mkdir()
+        (root / "bin").mkdir()
         os.symlink(ROOT / "lib" / "core.sh", root / "lib" / "core.sh")
         (root / "wgaio.sh").write_text(
             '#!/usr/bin/env bash\nprintf "wgaio-called %s\\n" "$*"\n',
             encoding="utf-8", newline="\n")
-        real = root / "real-wg"
-        real.write_text('#!/usr/bin/env bash\nprintf "wireguard-called %s\\n" "$*"\n',
-                        encoding="utf-8", newline="\n")
-        real.chmod(0o755)
+        return root
+
+    def _wgo(self, args):
+        root = self._sandbox()
         # 注意: 脚本写文件再跑, 别用 bash -c(Windows 上中间那层会先展开 $VAR)
         (root / "run.sh").write_text(
-            'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\nwrite_short_wg_wrapper "$ROOT" "$ROOT/wg"\n',
+            'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\nwrite_short_wgo_wrapper "$ROOT" "$ROOT/bin/wgo"\n',
             encoding="utf-8", newline="\n")
-        subprocess.run(["bash", "-c", "bash run.sh"], cwd=str(root),
+        subprocess.run(["bash", "run.sh"], cwd=str(root),
                        capture_output=True, text=True, timeout=60, encoding="utf-8")
-        return root, real
-
-    def _wg(self, args, real="./real-wg"):
-        # 注意: 变量要在命令行里给。Windows 上 python 的 env= 传不进 WSL 的 bash。
-        root, _ = self._sandbox()
-        cmd = "WGAIO_REAL_WG=%s bash wg %s" % (real, " ".join(args))
-        return subprocess.run(["bash", "-c", cmd], cwd=str(root),
+        return subprocess.run(["bash", "bin/wgo"] + list(args), cwd=str(root),
                               capture_output=True, text=True, timeout=60, encoding="utf-8")
 
-    def test_wireguard_subcommands_pass_through(self):
-        for args in (["show"], ["set", "wg0", "peer", "X", "remove"],
-                     ["genkey"], ["pubkey"], ["--version"]):
-            r = self._wg(args)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("wireguard-called", r.stdout, args)
-
-    def test_wgaio_subcommands_and_menu_go_to_wgaio(self):
-        for args in ([], ["user", "list"], ["upgrade"], ["install"]):
-            r = self._wg(args)
+    def test_wgo_delegates_everything_to_wgaio(self):
+        for args in ([], ["user", "list"], ["upgrade"], ["install"], ["cert", "fix"]):
+            r = self._wgo(args)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("wgaio-called", r.stdout, args)
 
-    def test_missing_real_wg_is_reported(self):
-        r = self._wg(["show"], real="/nonexistent/wg")
-        self.assertEqual(r.returncode, 127)
-        self.assertIn("WireGuard", r.stderr)
+    def test_refresh_replaces_legacy_wg_short_cmd(self):
+        """老短命令 wg(带本工具标记)要删掉换成 wgo——它会挡住真正的 wg。"""
+        root = self._sandbox()
+        legacy = root / "bin" / "wg"
+        legacy.write_text("#!/usr/bin/env bash\n# wgaio-short-cmd\nexec bash x\n",
+                          encoding="utf-8", newline="\n")
+        (root / "run.sh").write_text(
+            'ROOT="$PWD"\nexport WGAIO_SHORT_CMD_DIR="$ROOT/bin"\n'
+            '. "$ROOT/lib/core.sh"\nrefresh_short_cmd "$ROOT"\n',
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(legacy.exists(), "老短命令 wg 没被清掉")
+        wgo = root / "bin" / "wgo"
+        self.assertTrue(wgo.exists())
+        body = wgo.read_text(encoding="utf-8")
+        self.assertIn("wgaio.sh", body)
+        # 标记是升级时认领 wgo 的依据; 丢了它, 以后 refresh_short_cmd 会把自家 wgo 当成别人的跳过
+        self.assertIn("wgaio-short-cmd", body)
+        self.assertIn("wgo", r.stdout + r.stderr)
+
+    def test_refresh_keeps_foreign_short_cmds(self):
+        """不是本工具写的 wg/wgo 一律不动。"""
+        root = self._sandbox()
+        foreign_wg = root / "bin" / "wg"
+        foreign_wg.write_text("#!/usr/bin/env bash\n# someone-else\n", encoding="utf-8", newline="\n")
+        foreign_wgo = root / "bin" / "wgo"
+        foreign_wgo.write_text("#!/usr/bin/env bash\n# someone-else\n", encoding="utf-8", newline="\n")
+        (root / "run.sh").write_text(
+            'ROOT="$PWD"\nexport WGAIO_SHORT_CMD_DIR="$ROOT/bin"\n'
+            '. "$ROOT/lib/core.sh"\nrefresh_short_cmd "$ROOT"\n',
+            encoding="utf-8", newline="\n")
+        r = subprocess.run(["bash", "run.sh"], cwd=str(root),
+                           capture_output=True, text=True, timeout=60, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(foreign_wg.exists(), "别人的 wg 不许动")
+        self.assertEqual(foreign_wgo.read_text(encoding="utf-8"),
+                         "#!/usr/bin/env bash\n# someone-else\n", "别人的 wgo 不许覆盖")
+        self.assertIn("不是本工具写的", r.stdout + r.stderr)
 
     def test_banner_has_author_and_repo(self):
-        root, _ = self._sandbox()
+        root = self._sandbox()
         (root / "run.sh").write_text(
             'ROOT="$PWD"\n. "$ROOT/lib/core.sh"\nprint_welcome_banner\n',
             encoding="utf-8", newline="\n")
@@ -290,7 +314,7 @@ class ShortCommandTests(unittest.TestCase):
         self.assertIn("github.com/keiraee/wg-allin-one", r.stdout)
 
     def test_read_cfg_reports_broken_json_in_plain_words(self):
-        root, _ = self._sandbox()
+        root = self._sandbox()
         (root / "config.json").write_text("NOT_JSON_AT_ALL", encoding="utf-8")
         (root / "run.sh").write_text(
             "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"
@@ -305,7 +329,7 @@ class ShortCommandTests(unittest.TestCase):
         self.assertIn("不是合法 JSON", r.stderr)
 
     def test_read_cfg_reports_missing_file(self):
-        root, _ = self._sandbox()
+        root = self._sandbox()
         (root / "run.sh").write_text(
             "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"
             + 'read_cfg "./nope.json" wg_port' + "\n",
@@ -317,7 +341,7 @@ class ShortCommandTests(unittest.TestCase):
         self.assertIn("找不到配置", r.stderr)
 
     def test_read_cfg_still_works_on_good_config(self):
-        root, _ = self._sandbox()
+        root = self._sandbox()
         (root / "config.json").write_text(json.dumps({"wg_port": 51820}), encoding="utf-8")
         (root / "run.sh").write_text(
             "ROOT=\"" + bash_path(ROOT) + "\"" + "\n" + ". \"$ROOT/lib/install.sh\"" + "\n"

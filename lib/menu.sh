@@ -60,7 +60,7 @@ wgaio ${ver}  管理菜单
  14) 重启面板
  15) 面板状态
  16) 面板日志
- 17) 重新申请 HTTPS 证书
+ 17) 修复或重新申请 HTTPS 证书
 
 ── 其他 ──────────────────────────
  18) 备份隧道配置
@@ -239,7 +239,7 @@ cmd_menu() {
       14) menu_run cmd_panel restart ;;
       15) menu_run cmd_panel status ;;
       16) menu_run menu_logs ;;
-      17) menu_run cmd_cert ;;
+      17) menu_run cmd_cert fix ;;
       18) menu_run cmd_backup ;;
       19) menu_run menu_restore ;;
       20) menu_run cmd_rollback ;;

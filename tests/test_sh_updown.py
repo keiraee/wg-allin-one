@@ -86,6 +86,7 @@ class UpgradeApplyTests(unittest.TestCase):
         root = base / "inst"
         src = base / "src"
         (root / "lib").mkdir(parents=True)
+        (root / "bin").mkdir()
         (src / "lib").mkdir(parents=True)
         shutil.copy(ROOT / "lib" / "core.sh", root / "lib" / "core.sh")
         shutil.copy(ROOT / "lib" / "core.sh", src / "lib" / "core.sh")
@@ -102,11 +103,14 @@ class UpgradeApplyTests(unittest.TestCase):
         (src / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         r = run_bash(
             'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            'WGAIO_SHORT_CMD_DIR="$(pwd)/bin"; '
             '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
             cwd=root)
         self.assertEqual(r.returncode, 0, "STDOUT:\n%s\nSTDERR:\n%s" % (r.stdout, r.stderr))
         self.assertEqual((root / "wgaio.sh").read_text(encoding="utf-8"), "new-entry\n")
         self.assertEqual((root / "config.json").read_text(encoding="utf-8"), "KEEP\n")
+        # 升级要顺手刷新短命令(把老的 wg 换成 wgo)
+        self.assertTrue((root / "bin" / "wgo").exists(), "升级没刷新短命令")
         listed = run_bash('tar -xOf snapshots/wgaio-*.tar.gz wgaio.sh', cwd=root)
         self.assertEqual(listed.stdout, "old-entry\n", listed.stderr)
         r = run_bash(
@@ -142,6 +146,7 @@ class UpgradeApplyTests(unittest.TestCase):
         root = base / "inst"
         src = base / "src"
         (root / "lib").mkdir(parents=True)
+        (root / "bin").mkdir()
         (src / "lib").mkdir(parents=True)
         for name in ("core.sh", "upgrade.sh"):
             shutil.copy(ROOT / "lib" / name, root / "lib" / name)
@@ -157,6 +162,7 @@ class UpgradeApplyTests(unittest.TestCase):
         (src / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         r = run_bash(
             'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            'WGAIO_SHORT_CMD_DIR="$(pwd)/bin"; '
             '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
             cwd=root)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -253,6 +259,7 @@ fi
         root = base / "inst"
         src = base / "src"
         (root / "lib").mkdir(parents=True)
+        (root / "bin").mkdir()
         (src / "lib").mkdir(parents=True)
         for name in ("core.sh", "upgrade.sh"):
             shutil.copy(ROOT / "lib" / name, root / "lib" / name)
@@ -272,6 +279,7 @@ fi
             encoding="utf-8", newline="\n")
         r = run_bash(
             'ROOT="$(pwd)"; WGAIO_ROOT="$(pwd)"; WGAIO_UPGRADE_SRC="../src"; '
+            'WGAIO_SHORT_CMD_DIR="$(pwd)/bin"; '
             '. lib/core.sh; . lib/upgrade.sh; cmd_upgrade',
             cwd=root)
         self.assertEqual(r.returncode, 0, r.stderr)

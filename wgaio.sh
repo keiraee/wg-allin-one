@@ -5,7 +5,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export WGAIO_ROOT="$ROOT"
 
-VERSION="0.3.16"
+VERSION="0.3.17"
 export WGAIO_VERSION="$VERSION"
 
 # --- 引导模式: 套件缺失时自动拉取 (版本号只写在下面 VERSION= 一处) ---
@@ -208,27 +208,28 @@ usage() {
   cat >&2 <<'EOF'
 用法: wgaio [子命令]
 
-  wgaio                   打开管理菜单(终端里直接进入; 装了短命令后敲 wg 也一样)
+  wgaio                   打开管理菜单(终端里直接进入; 装了短命令后敲 wgo 也一样)
   install                 向导式安装(中文问答)
   version                 显示版本
   user add|del|edit|list|show|disable|enable|rotate   设备管理
   panel start|stop|restart|status|install  面板服务
   status                  总览(含面板完整地址)
   cert                    重新申请 Let's Encrypt 证书
+  cert fix                证书失败后的修复(重新生成自签或重新申请正式证书)
   backup [restore 文件]   备份或恢复 config.json、clients 和 wg0.conf
   logs [行数]             面板日志
   upgrade                 升级；没记住轨道时跟最新正式版，记住 main 后继续跟 main
   verify [--fix]          校验本地文件是否被改动, --fix 从轨道重新下载修复
   rollback                回滚到最近快照(不覆盖 config.json)
   uninstall               卸载
-mirror [restore]        把系统包源换成国内镜像 / 还原
-token                   重置面板登录令牌(忘记令牌时用)
+  mirror [restore]        把系统包源换成国内镜像 / 还原
+  token                   重置面板登录令牌(忘记令牌时用)
 
 正式版: wgaio upgrade
 切回正式版: WGAIO_REF=latest wgaio upgrade
 抢先试用: WGAIO_REF=main wgaio upgrade
 设备管理细节: wgaio user --help
-短命令: wg 等价于 wgaio; wg show/set/genkey 等仍交给真正的 WireGuard
+短命令: wgo 等价于 wgaio; WireGuard 自己的命令仍然是 wg, 互不干扰
 国内网络: 直连 GitHub 失败时加 WGAIO_MIRROR=<加速前缀>(可多个, 空格分开)
 EOF
 }

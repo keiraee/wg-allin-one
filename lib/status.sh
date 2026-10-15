@@ -47,7 +47,7 @@ print("1" if (scheme == "http" and bind == "0.0.0.0") else "0")' "$WGAIO_ROOT/co
     log "面板地址: $url"
     log "只打开这一整条。只开端口会看到 404"
     if [ "$(printf '%s\n' "$out" | tail -n 1)" = "1" ]; then
-      warn "面板绑在公网却没有证书(明文 HTTP), 令牌会明文过网; 腾出 80 或 443 后执行 wgaio cert"
+      warn "面板绑在公网却没有证书(明文 HTTP), 令牌会明文过网; 执行 wgaio cert fix 修复证书"
     fi
   fi
   log "设备列表:"
